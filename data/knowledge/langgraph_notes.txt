@@ -1,0 +1,14 @@
+LangGraph 学习笔记
+
+LangGraph 适合构建有状态、多步骤、可控流程的 Agent 系统。相比普通 Chain，LangGraph 更强调状态 State、节点 Node、边 Edge、条件分支和可恢复执行。
+
+面试讲解重点：
+1. State 保存全局上下文，例如简历画像、JD 分析、匹配结果、RAG 检索结果、项目建议和最终报告。
+2. Node 是独立子任务，例如 resume parser、JD analyzer、matcher、RAG retriever、GitHub recommender。
+3. Edge 定义执行顺序，可以扩展为条件路由，例如如果匹配分低于阈值，就优先进入技能补强节点。
+4. LangGraph 项目的优势是流程可解释、可调试、可测试，不是黑盒聊天机器人。
+
+可扩展方向：
+- 加入 checkpoint，实现中间状态保存。
+- 加入 streaming，展示每个节点的运行过程。
+- 加入 conditional edge，根据缺口技能选择不同学习路线。

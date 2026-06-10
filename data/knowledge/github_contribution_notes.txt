@@ -1,0 +1,17 @@
+GitHub 开源贡献笔记
+
+适合秋招补强的开源贡献不一定一开始就做核心代码，可以从 docs、tests、examples、bug reproduction 开始。
+
+推荐路径：
+1. 先复现项目 example，记录环境和报错。
+2. 阅读 issue，优先找 good first issue、documentation、test、example。
+3. 提交小 PR，例如修复文档、补充中文说明、增加测试用例、增加 Qwen/DashScope 示例。
+4. 在自己的项目 README 中记录贡献过程和学习收获。
+5. 面试中重点讲清楚：为什么选这个 issue、如何定位问题、如何验证 PR 正确性。
+
+适合本项目的贡献方向：
+- LangGraph：补充状态图示例、checkpoint/streaming demo。
+- LangChain：补充 Qwen/DashScope OpenAI-compatible 示例。
+- Qwen-Agent：封装中文求职助手工具。
+- LlamaIndex：补充中文 PDF 简历解析和 RAG 检索示例。
+- vLLM：补充 Qwen serving benchmark。

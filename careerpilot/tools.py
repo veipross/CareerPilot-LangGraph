@@ -5,6 +5,7 @@ These tools make the demo reproducible and give the Agent something concrete to 
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from collections import Counter
 from typing import Dict, Iterable, List, Tuple
 
@@ -245,3 +246,69 @@ def recommend_open_source_projects(
 
     results.sort(key=lambda item: item["fit_score"], reverse=True)
     return results[:top_k]
+
+
+
+def split_text_into_chunks(text: str, chunk_size: int = 420, overlap: int = 60) -> List[str]:
+    """Split text into small chunks for lightweight local retrieval."""
+
+    text = normalize_text(text)
+    if not text:
+        return []
+
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        if end >= len(text):
+            break
+        start = max(0, end - overlap)
+
+    return chunks
+
+
+def retrieve_knowledge(
+    query_terms: List[str],
+    knowledge_dir: str = "data/knowledge",
+    top_k: int = 4,
+) -> List[Dict[str, object]]:
+    """A lightweight keyword-overlap retriever.
+
+    This is intentionally deterministic so the project can run without an
+    embedding model or vector database. It can be replaced by FAISS/LlamaIndex later.
+    """
+
+    root = Path(knowledge_dir)
+    if not root.exists():
+        return []
+
+    terms = [term for term in dict.fromkeys(query_terms or []) if term]
+    lower_terms = [term.lower() for term in terms]
+
+    candidates = []
+    for path in sorted(root.glob("*.txt")):
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for chunk in split_text_into_chunks(text):
+            chunk_lower = chunk.lower()
+            matched = [
+                terms[i]
+                for i, term in enumerate(lower_terms)
+                if term and (term in chunk_lower or terms[i] in chunk)
+            ]
+
+            if not matched:
+                continue
+
+            score = min(100, 20 + 15 * len(matched))
+            candidates.append(
+                {
+                    "source": str(path),
+                    "score": score,
+                    "content": chunk,
+                    "matched_terms": matched,
+                }
+            )
+
+    candidates.sort(key=lambda item: item["score"], reverse=True)
+    return candidates[:top_k]

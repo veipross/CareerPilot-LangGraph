@@ -1,0 +1,17 @@
+RAG 知识库笔记
+
+RAG，即 Retrieval-Augmented Generation，核心思想是先从外部知识库检索相关内容，再把检索结果交给大模型生成回答。
+
+典型流程：
+1. 文档加载：读取 PDF、Markdown、TXT、网页或数据库内容。
+2. 文档切分：按长度或语义把文档切成 chunk。
+3. 向量化：用 embedding 模型把 chunk 转成向量。
+4. 检索：根据用户 query 找到最相关的 chunks。
+5. 生成：把检索内容放进 prompt，生成更有依据的回答。
+
+本项目当前实现的是轻量级本地检索版本，先用关键词重叠分数模拟 retriever，后续可以升级为 FAISS、Milvus、Chroma 或 LlamaIndex。
+
+面试讲解重点：
+- RAG 解决的是模型不知道私有知识、岗位 JD、面经和项目文档的问题。
+- 检索结果需要可解释，所以报告里要展示来源文件、相关片段和分数。
+- 后续可以加入 rerank、metadata filter、hybrid search。

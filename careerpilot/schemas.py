@@ -16,6 +16,7 @@ class CareerState(TypedDict, total=False):
     match_report: Dict[str, Any]
     project_plan: Dict[str, Any]
     github_recommendations: List[Dict[str, Any]]
+    rag_context: List[Dict[str, Any]]
     resume_rewrite: Dict[str, Any]
     interview_plan: Dict[str, Any]
     final_report: str
@@ -54,6 +55,14 @@ class ProjectPlan(BaseModel):
     milestones: List[str] = Field(default_factory=list)
     resume_bullets: List[str] = Field(default_factory=list)
 
+
+
+
+class RAGContext(BaseModel):
+    source: str
+    score: int = 0
+    content: str
+    matched_terms: List[str] = Field(default_factory=list)
 
 
 class OpenSourceRecommendation(BaseModel):

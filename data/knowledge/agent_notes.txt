@@ -1,0 +1,22 @@
+Agent 工程笔记
+
+大模型 Agent 的核心不是单轮问答，而是让模型具备任务分解、工具调用、状态记忆和结果校验能力。
+
+常见模块：
+1. Planner：分析用户目标，拆解任务步骤。
+2. Tool Executor：调用外部工具，例如搜索、GitHub API、文件解析、代码运行。
+3. Memory/State：保存历史信息和中间结果。
+4. Evaluator：检查输出是否满足要求，例如 JSON schema 是否正确、结果是否可复现。
+
+本项目中的 Agent 设计：
+- ProfileExtractor：抽取候选人画像。
+- JDAnalyzer：解析岗位要求。
+- Matcher：计算技能匹配和缺口。
+- RAGRetriever：检索知识库，补充学习与面试上下文。
+- GitHubRecommender：推荐开源仓库和贡献切入点。
+- ResumeRewriter：生成可写入简历的项目描述。
+
+面试讲解重点：
+- 这个项目不是简单 Prompt，而是用 LangGraph 把 Agent 拆成多个可测试节点。
+- 工具节点和 LLM 节点可以独立替换。
+- 离线规则作为 fallback，保证没有 API Key 时也能运行。

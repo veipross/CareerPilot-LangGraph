@@ -6,13 +6,14 @@ from typing import Any, Dict
 from langgraph.graph import END, START, StateGraph
 
 from .llm import invoke_json
-from .schemas import CareerState, InterviewPlan, JDProfile, MatchReport, OpenSourceRecommendation, ProjectPlan, ResumeProfile, ResumeRewrite
+from .schemas import CareerState, InterviewPlan, JDProfile, MatchReport, OpenSourceRecommendation, ProjectPlan, RAGContext, ResumeProfile, ResumeRewrite
 from .tools import (
     compute_match,
     extract_project_lines,
     extract_skills,
     recommend_project_features,
     recommend_open_source_projects,
+    retrieve_knowledge,
     top_keywords,
 )
 
@@ -104,6 +105,29 @@ def match_node(state: CareerState) -> Dict[str, Any]:
         positioning=positioning,
     )
     return {"match_report": report.model_dump()}
+
+
+
+def rag_retriever_node(state: CareerState) -> Dict[str, Any]:
+    """Retrieve local knowledge snippets based on JD and missing skills."""
+
+    match = state.get("match_report", {})
+    jd = state.get("jd_profile", {})
+
+    query_terms = list(
+        dict.fromkeys(
+            [
+                *match.get("missing_skills", []),
+                *match.get("matched_skills", []),
+                *jd.get("keywords", []),
+                jd.get("role", ""),
+            ]
+        )
+    )
+
+    raw_items = retrieve_knowledge(query_terms=query_terms, knowledge_dir="data/knowledge", top_k=4)
+    items = [RAGContext(**item).model_dump() for item in raw_items]
+    return {"rag_context": items}
 
 
 def project_planner_node(state: CareerState, llm: Any | None = None) -> Dict[str, Any]:
@@ -229,6 +253,7 @@ def final_report_node(state: CareerState) -> Dict[str, Any]:
     rewrite = state.get("resume_rewrite", {})
     interview = state.get("interview_plan", {})
     github_recs = state.get("github_recommendations", [])
+    rag_context = state.get("rag_context", [])
     errors = state.get("errors") or []
 
     def bullets(items):
@@ -251,6 +276,27 @@ def final_report_node(state: CareerState) -> Dict[str, Any]:
                 f"- 推荐理由：{item.get('reason', '')}\n"
                 f"- 重点补强：{skills or '暂无'}\n"
                 f"- 贡献切入点：\n{ideas if ideas else '  - 暂无'}"
+            )
+
+        return "\n\n".join(blocks)
+
+    def rag_cards(items):
+        if not items:
+            return "- 暂无"
+
+        blocks = []
+        for item in items:
+            content = item.get("content", "")
+            if len(content) > 220:
+                content = content[:220] + "..."
+
+            matched = ", ".join(item.get("matched_terms", []))
+
+            blocks.append(
+                f"### {item.get('source', 'unknown')}\n"
+                f"- 检索分：{item.get('score', 0)} / 100\n"
+                f"- 命中词：{matched or '暂无'}\n"
+                f"- 片段：{content}"
             )
 
         return "\n\n".join(blocks)
@@ -286,6 +332,9 @@ def final_report_node(state: CareerState) -> Dict[str, Any]:
 ### 开源贡献推荐
 {github_cards(github_recs)}
 
+### RAG 知识库检索结果
+{rag_cards(rag_context)}
+
 ## 6. 可写入简历的项目描述
 {rewrite.get('summary', '')}
 
@@ -315,6 +364,7 @@ def build_graph(llm: Any | None = None):
     workflow.add_node("extract_profile", lambda state: extract_profile_node(state, llm))
     workflow.add_node("analyze_jd", lambda state: analyze_jd_node(state, llm))
     workflow.add_node("match", match_node)
+    workflow.add_node("rag_retriever", rag_retriever_node)
     workflow.add_node("project_planner", lambda state: project_planner_node(state, llm))
     workflow.add_node("github_recommender", github_recommender_node)
     workflow.add_node("resume_rewriter", lambda state: resume_rewriter_node(state, llm))
@@ -324,7 +374,8 @@ def build_graph(llm: Any | None = None):
     workflow.add_edge(START, "extract_profile")
     workflow.add_edge("extract_profile", "analyze_jd")
     workflow.add_edge("analyze_jd", "match")
-    workflow.add_edge("match", "project_planner")
+    workflow.add_edge("match", "rag_retriever")
+    workflow.add_edge("rag_retriever", "project_planner")
     workflow.add_edge("project_planner", "github_recommender")
     workflow.add_edge("github_recommender", "resume_rewriter")
     workflow.add_edge("resume_rewriter", "interview_planner")

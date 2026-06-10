@@ -46,3 +46,22 @@ def test_recommend_open_source_projects():
     assert recs[0]["fit_score"] >= recs[-1]["fit_score"]
     assert "repo" in recs[0]
     assert recs[0]["contribution_ideas"]
+
+
+
+def test_retrieve_knowledge(tmp_path):
+    from careerpilot.tools import retrieve_knowledge
+
+    kb = tmp_path / "knowledge"
+    kb.mkdir()
+    (kb / "rag.txt").write_text("RAG 检索增强 需要 文档切分 向量检索 Agent", encoding="utf-8")
+
+    results = retrieve_knowledge(
+        query_terms=["RAG", "Agent"],
+        knowledge_dir=str(kb),
+        top_k=2,
+    )
+
+    assert results
+    assert results[0]["score"] > 0
+    assert "RAG" in results[0]["matched_terms"]
