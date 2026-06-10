@@ -1,7 +1,28 @@
-.env
-.venv/
+# Python
 __pycache__/
+*.py[cod]
 .pytest_cache/
-*.pyc
-outputs/*.md
+.mypy_cache/
+.ruff_cache/
+
+# Virtual env
+.venv/
+venv/
+env/
+
+# Secrets
+.env
+.env.*
+
+# Private user data
+data/resume/
+outputs/*
 !outputs/.gitkeep
+*.pdf
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
