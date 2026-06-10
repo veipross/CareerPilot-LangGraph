@@ -6,7 +6,7 @@
 
 ## 1. 项目亮点
 
-- **LangGraph 状态图编排**：`ProfileExtractor → JDAnalyzer → Matcher → ProjectPlanner → ResumeRewriter → InterviewPlanner → FinalReport`
+- **LangGraph 状态图编排**：`ProfileExtractor → JDAnalyzer → Matcher → RAGRetriever → ProjectPlanner → GitHubRecommender → ResumeRewriter → InterviewPlanner → FinalReport`
 - **Qwen / DashScope 接入**：通过 OpenAI-compatible endpoint 调用 Qwen，也支持无 API Key 的 offline demo
 - **结构化输出**：使用 Pydantic schema 约束候选人画像、JD 画像、匹配报告、项目规划、简历改写
 - **工程鲁棒性**：LLM JSON 解析失败时自动降级到确定性关键词工具
@@ -19,16 +19,17 @@ flowchart LR
     A[Resume / JD Input] --> B[ProfileExtractor]
     B --> C[JDAnalyzer]
     C --> D[Matcher]
-    D --> E[ProjectPlanner]
-    E --> F[ResumeRewriter]
-    F --> G[InterviewPlanner]
-    G --> H[Markdown Report]
+    D --> E[RAGRetriever]
+    E --> F[ProjectPlanner]
+    F --> G[GitHubRecommender]
+    G --> H[ResumeRewriter]
+    H --> I[InterviewPlanner]
+    I --> J[Markdown Report]
 
     B -. optional .-> Q[Qwen / DashScope]
     C -. optional .-> Q
-    E -. optional .-> Q
     F -. optional .-> Q
-    G -. optional .-> Q
+    H -. optional .-> Q
 ```
 
 ## 3. 快速开始
@@ -102,11 +103,13 @@ CareerPilot-LangGraph/
 
 | Node | 输入 | 输出 | 作用 |
 |---|---|---|---|
-| `extract_profile` | resume_text | profile | 抽取教育、技能、项目、优势、缺失信号 |
+| `extract_profile` | resume_text | profile | 抽取教育、技能、项目、优势和缺失信号 |
 | `analyze_jd` | jd_text | jd_profile | 抽取岗位核心要求、加分项、工具和关键词 |
 | `match` | profile + jd_profile | match_report | 计算技能匹配度、风险点和候选人定位 |
-| `project_planner` | match_report | project_plan | 推荐 GitHub 学习/贡献仓库和功能里程碑 |
-| `resume_rewriter` | project_plan | resume_rewrite | 生成适合简历的项目描述 |
+| `rag_retriever` | match_report + jd_profile | rag_context | 从本地知识库检索 LangGraph、RAG、Agent 和开源贡献相关内容 |
+| `project_planner` | match_report + rag_context | project_plan | 生成项目功能路线和阶段性里程碑 |
+| `github_recommender` | match_report | github_recommendations | 推荐适合学习和贡献的 GitHub 仓库及 PR 切入点 |
+| `resume_rewriter` | project_plan + github_recommendations | resume_rewrite | 生成适合写入简历的项目描述 |
 | `interview_planner` | full state | interview_plan | 生成面试问题、讲解要点和学习计划 |
 | `final_report` | full state | final_report | 汇总 Markdown 报告 |
 
@@ -116,7 +119,7 @@ CareerPilot-LangGraph/
 
 可选 bullet：
 
-- 使用 `StateGraph` 构建 `ProfileExtractor → JDAnalyzer → Matcher → ProjectPlanner → ResumeRewriter` 状态流，实现多阶段任务拆解和节点状态传递。
+- - 使用 `StateGraph` 构建 `ProfileExtractor → JDAnalyzer → Matcher → RAGRetriever → ProjectPlanner → GitHubRecommender → ResumeRewriter` 状态流，实现多阶段任务拆解、知识检索、开源推荐和节点状态传递。
 - 设计 Pydantic schema 约束 LLM 结构化输出，并实现 JSON 解析失败后的确定性工具降级，提高 Agent 工程稳定性。
 - 封装技能抽取、岗位匹配和项目推荐工具，输出匹配分、缺口技能、GitHub 项目路线和可写入简历的项目 bullet。
 - 预留 RAG、GitHub issue 检索、MCP 工具调用和 vLLM serving benchmark 扩展接口，支持后续开源贡献和性能评测。
