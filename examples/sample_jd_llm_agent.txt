@@ -1,0 +1,13 @@
+岗位：大模型应用 / Agent 工程实习生
+
+岗位职责：
+1. 参与基于 LLM 的智能体系统建设，负责 Agent 工作流、工具调用、函数调用和多轮对话能力开发。
+2. 参与企业知识库问答、RAG 检索增强、文档解析、向量数据库和评测体系建设。
+3. 使用 LangChain、LangGraph、LlamaIndex 或类似框架搭建可复用的大模型应用组件。
+4. 支持 Qwen、OpenAI API 或其他模型服务接入，优化响应稳定性、结构化输出和成本。
+
+岗位要求：
+1. 熟悉 Python，了解大模型应用开发范式。
+2. 熟悉 LangChain / LangGraph / Agent / Tool Calling / Function Calling 者优先。
+3. 有 RAG、FAISS、Milvus、MCP、FastAPI、Docker 经验者优先。
+4. 了解 vLLM、模型量化、推理服务优化者加分。

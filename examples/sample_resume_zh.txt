@@ -1,0 +1,12 @@
+教育背景：人工智能方向硕士研究生，主修深度学习与大模型架构、自然语言处理、强化学习、矩阵论、现代模式识别。
+求职意向：AI 大模型、算法实习生、大模型应用实习生。
+
+项目一：基于大语言模型的视觉数据自动化增强系统
+技术栈：Python, DashScope SDK, 通义千问, Prompt Engineering, 多轮对话。
+项目描述：构建端到端自动化流水线，批量调用大模型提取图像语义信息，辅助生成元数据标签并纠正早期标注错误。
+
+项目二：Z-Generator 高性能动态推理与硬件感知量化框架
+技术栈：PyTorch, CUDA, TensorRT, 模型量化 INT8/FP16, 算子优化。
+项目描述：面向边缘设备实时显著性目标检测任务，设计结构化剪枝、低比特量化和动态推理机制，降低延迟并提升吞吐。
+
+技能：Python, C++, PyTorch, Transformer, Attention, LoRA, P-Tuning, GPTQ, AWQ, SmoothQuant, vLLM, DeepSpeed, TensorRT-LLM, CUDA, Linux, Git。

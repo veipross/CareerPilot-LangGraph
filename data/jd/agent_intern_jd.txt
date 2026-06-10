@@ -1,0 +1,15 @@
+岗位名称：大模型应用/Agent 工程实习生
+
+岗位职责：
+1. 参与大语言模型应用系统开发，包括 Agent、RAG、工具调用、多轮对话等方向。
+2. 基于 LangChain、LangGraph、LlamaIndex 等框架构建可落地的大模型应用。
+3. 负责 Prompt Engineering、Function Calling、结构化输出、知识库检索等模块设计。
+4. 参与模型调用链路优化，包括接口封装、响应解析、异常处理和性能评估。
+5. 跟进大模型、多模态模型、Agent 框架等前沿技术。
+
+岗位要求：
+1. 熟悉 Python，熟悉 PyTorch 或常见深度学习框架。
+2. 理解 Transformer、Attention、大语言模型基本原理。
+3. 熟悉 LangChain、LangGraph、RAG、Agent、Tool Calling 等技术者优先。
+4. 有 Qwen、OpenAI API、DashScope、vLLM、FastAPI、Docker 使用经验者优先。
+5. 有开源项目经验、GitHub PR、LLM 应用项目经验者优先。
