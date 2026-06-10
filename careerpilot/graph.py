@@ -6,12 +6,13 @@ from typing import Any, Dict
 from langgraph.graph import END, START, StateGraph
 
 from .llm import invoke_json
-from .schemas import CareerState, InterviewPlan, JDProfile, MatchReport, ProjectPlan, ResumeProfile, ResumeRewrite
+from .schemas import CareerState, InterviewPlan, JDProfile, MatchReport, OpenSourceRecommendation, ProjectPlan, ResumeProfile, ResumeRewrite
 from .tools import (
     compute_match,
     extract_project_lines,
     extract_skills,
     recommend_project_features,
+    recommend_open_source_projects,
     top_keywords,
 )
 
@@ -142,6 +143,25 @@ def project_planner_node(state: CareerState, llm: Any | None = None) -> Dict[str
         return {**_merge_errors(state, "LLM project planning failed; used base plan."), "project_plan": base_plan.model_dump()}
 
 
+
+def github_recommender_node(state: CareerState) -> Dict[str, Any]:
+    """Recommend open-source repos and concrete PR entry points."""
+
+    match = state.get("match_report", {})
+    jd = state.get("jd_profile", {})
+    target_role = jd.get("role") or state.get("target_role") or "大模型/Agent 工程实习生"
+
+    raw_items = recommend_open_source_projects(
+        missing_skills=match.get("missing_skills", []),
+        matched_skills=match.get("matched_skills", []),
+        target_role=target_role,
+        top_k=4,
+    )
+
+    items = [OpenSourceRecommendation(**item).model_dump() for item in raw_items]
+    return {"github_recommendations": items}
+
+
 def resume_rewriter_node(state: CareerState, llm: Any | None = None) -> Dict[str, Any]:
     project_plan = state.get("project_plan", {})
     match = state.get("match_report", {})
@@ -208,10 +228,32 @@ def final_report_node(state: CareerState) -> Dict[str, Any]:
     project = state.get("project_plan", {})
     rewrite = state.get("resume_rewrite", {})
     interview = state.get("interview_plan", {})
+    github_recs = state.get("github_recommendations", [])
     errors = state.get("errors") or []
 
     def bullets(items):
         return "\n".join(f"- {item}" for item in items) if items else "- 暂无"
+
+    def github_cards(items):
+        if not items:
+            return "- 暂无"
+
+        blocks = []
+        for item in items:
+            ideas = "\n".join(
+                f"  - {idea}" for idea in item.get("contribution_ideas", [])
+            )
+            skills = ", ".join(item.get("skills_to_learn", []))
+
+            blocks.append(
+                f"### {item.get('repo', 'unknown')}\n"
+                f"- 适配分：{item.get('fit_score', 0)} / 100\n"
+                f"- 推荐理由：{item.get('reason', '')}\n"
+                f"- 重点补强：{skills or '暂无'}\n"
+                f"- 贡献切入点：\n{ideas if ideas else '  - 暂无'}"
+            )
+
+        return "\n\n".join(blocks)
 
     report = f"""# CareerPilot-LangGraph 求职匹配报告
 
@@ -240,6 +282,9 @@ def final_report_node(state: CareerState) -> Dict[str, Any]:
 
 ### 建议学习/贡献仓库
 {bullets(project.get('github_projects_to_study', []))}
+
+### 开源贡献推荐
+{github_cards(github_recs)}
 
 ## 6. 可写入简历的项目描述
 {rewrite.get('summary', '')}
@@ -271,6 +316,7 @@ def build_graph(llm: Any | None = None):
     workflow.add_node("analyze_jd", lambda state: analyze_jd_node(state, llm))
     workflow.add_node("match", match_node)
     workflow.add_node("project_planner", lambda state: project_planner_node(state, llm))
+    workflow.add_node("github_recommender", github_recommender_node)
     workflow.add_node("resume_rewriter", lambda state: resume_rewriter_node(state, llm))
     workflow.add_node("interview_planner", lambda state: interview_planner_node(state, llm))
     workflow.add_node("final_report", final_report_node)
@@ -279,7 +325,8 @@ def build_graph(llm: Any | None = None):
     workflow.add_edge("extract_profile", "analyze_jd")
     workflow.add_edge("analyze_jd", "match")
     workflow.add_edge("match", "project_planner")
-    workflow.add_edge("project_planner", "resume_rewriter")
+    workflow.add_edge("project_planner", "github_recommender")
+    workflow.add_edge("github_recommender", "resume_rewriter")
     workflow.add_edge("resume_rewriter", "interview_planner")
     workflow.add_edge("interview_planner", "final_report")
     workflow.add_edge("final_report", END)

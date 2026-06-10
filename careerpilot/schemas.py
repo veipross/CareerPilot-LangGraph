@@ -15,6 +15,7 @@ class CareerState(TypedDict, total=False):
     jd_profile: Dict[str, Any]
     match_report: Dict[str, Any]
     project_plan: Dict[str, Any]
+    github_recommendations: List[Dict[str, Any]]
     resume_rewrite: Dict[str, Any]
     interview_plan: Dict[str, Any]
     final_report: str
@@ -52,6 +53,15 @@ class ProjectPlan(BaseModel):
     features: List[str] = Field(default_factory=list)
     milestones: List[str] = Field(default_factory=list)
     resume_bullets: List[str] = Field(default_factory=list)
+
+
+
+class OpenSourceRecommendation(BaseModel):
+    repo: str
+    reason: str
+    fit_score: int = 0
+    contribution_ideas: List[str] = Field(default_factory=list)
+    skills_to_learn: List[str] = Field(default_factory=list)
 
 
 class ResumeRewrite(BaseModel):

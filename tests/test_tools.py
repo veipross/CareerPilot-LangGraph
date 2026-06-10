@@ -30,3 +30,19 @@ def test_extract_project_lines():
     text = "项目一：Agent 系统\n普通描述\n项目二：推理优化框架"
     lines = extract_project_lines(text)
     assert len(lines) == 2
+
+
+
+def test_recommend_open_source_projects():
+    from careerpilot.tools import recommend_open_source_projects
+
+    recs = recommend_open_source_projects(
+        missing_skills=["LangGraph", "Agent", "RAG"],
+        matched_skills=["Python", "Qwen", "DashScope"],
+        target_role="大模型/Agent 工程实习生",
+    )
+
+    assert recs
+    assert recs[0]["fit_score"] >= recs[-1]["fit_score"]
+    assert "repo" in recs[0]
+    assert recs[0]["contribution_ideas"]

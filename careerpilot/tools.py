@@ -148,3 +148,100 @@ def recommend_project_features(missing_skills: List[str], matched_skills: List[s
     if any(skill in matched_skills for skill in ["CUDA", "TensorRT", "vLLM", "量化"]):
         features.append("推理性能扩展：记录模型调用 latency、token 用量，并预留 vLLM serving 接口")
     return features
+
+
+OPEN_SOURCE_PROJECTS = [
+    {
+        "repo": "langchain-ai/langgraph",
+        "tags": ["LangGraph", "Agent", "Tool Calling", "状态图", "结构化输出"],
+        "reason": "Agent 状态图编排核心仓库，最适合补强你报告中的 LangGraph/Agent 信号。",
+        "ideas": [
+            "复现官方 examples，并补充中文 README/注释版学习笔记",
+            "为 CareerPilot 增加一个 LangGraph checkpoint 或 streaming 示例",
+            "从 good first issue / docs issue 开始，提交测试或文档 PR",
+        ],
+    },
+    {
+        "repo": "langchain-ai/langchain",
+        "tags": ["LangChain", "Tool Calling", "Function Calling", "OpenAI API", "Agent"],
+        "reason": "大模型应用岗位认可度高，适合学习工具调用、结构化输出和模型接口封装。",
+        "ideas": [
+            "补充一个 Qwen/DashScope OpenAI-compatible 调用示例",
+            "给某个 Tool/Parser 增加最小可复现测试",
+            "整理 LangChain 与 LangGraph 的差异对比文档",
+        ],
+    },
+    {
+        "repo": "QwenLM/Qwen-Agent",
+        "tags": ["Qwen", "DashScope", "Agent", "Function Calling", "Tool Calling"],
+        "reason": "与你已有 DashScope/通义千问项目经历最连贯，适合做中文 Agent 应用展示。",
+        "ideas": [
+            "把 CareerPilot 的简历/JD 分析封装成 Qwen-Agent 工具",
+            "实现一个中文求职助手 demo，支持多轮追问和工具调用",
+            "补充 DashScope 配置说明、异常处理或示例脚本",
+        ],
+    },
+    {
+        "repo": "run-llama/llama_index",
+        "tags": ["RAG", "向量检索", "OpenAI API", "Agent", "文档解析"],
+        "reason": "用于补强 RAG/向量检索短板，适合把 JD、面经、GitHub issue 做成知识库。",
+        "ideas": [
+            "为 CareerPilot 增加 JD/面经 RAG 检索模块",
+            "对比 naive retrieval、rerank、metadata filter 的效果",
+            "补一个中文 PDF 简历解析到索引的示例",
+        ],
+    },
+    {
+        "repo": "vllm-project/vllm",
+        "tags": ["vLLM", "推理优化", "Qwen", "性能评测", "Serving"],
+        "reason": "承接你的 TensorRT/CUDA/量化背景，能形成区别于普通 Agent 项目的性能亮点。",
+        "ideas": [
+            "写 Qwen 模型在不同并发下的 TTFT/tokens/s benchmark 脚本",
+            "把 CareerPilot 的 LLM 调用切换到本地 vLLM OpenAI-compatible 服务",
+            "记录显存占用、吞吐和 P95 latency，形成实验报告",
+        ],
+    },
+]
+
+
+def recommend_open_source_projects(
+    missing_skills: List[str],
+    matched_skills: List[str],
+    target_role: str = "大模型/Agent 工程实习生",
+    top_k: int = 4,
+) -> List[Dict[str, object]]:
+    """Recommend open-source repos and concrete contribution ideas."""
+
+    missing = set(missing_skills or [])
+    matched = set(matched_skills or [])
+    role_text = target_role or ""
+    results = []
+
+    for project in OPEN_SOURCE_PROJECTS:
+        tags = set(project["tags"])
+        score = 40
+        score += 12 * len(tags & missing)
+        score += 6 * len(tags & matched)
+
+        if "Agent" in role_text and "Agent" in tags:
+            score += 10
+        if "大模型" in role_text and ({"Qwen", "OpenAI API", "vLLM"} & tags):
+            score += 8
+
+        score = min(score, 100)
+
+        results.append(
+            {
+                "repo": project["repo"],
+                "reason": project["reason"],
+                "fit_score": score,
+                "contribution_ideas": project["ideas"],
+                "skills_to_learn": [
+                    skill for skill in project["tags"]
+                    if skill in missing or skill not in matched
+                ][:5],
+            }
+        )
+
+    results.sort(key=lambda item: item["fit_score"], reverse=True)
+    return results[:top_k]
