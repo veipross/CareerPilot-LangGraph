@@ -39,13 +39,16 @@ flowchart LR
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -e ".[dev]"
+
+# 安装完成后会注册 careerpilot 命令行入口
+careerpilot --help
 ```
 
 ### 3.2 离线运行，无需 API Key
 
 ```bash
-python -m careerpilot.cli \
+careerpilot \
   --resume examples/sample_resume_zh.txt \
   --jd examples/sample_jd_llm_agent.txt \
   --out outputs/report.md \
@@ -71,7 +74,7 @@ CAREERPILOT_MODEL=qwen-plus
 运行：
 
 ```bash
-python -m careerpilot.cli \
+careerpilot \
   --resume examples/sample_resume_zh.txt \
   --jd examples/sample_jd_llm_agent.txt \
   --out outputs/report.md
