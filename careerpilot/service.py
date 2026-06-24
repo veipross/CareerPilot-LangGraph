@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from .config import Settings, get_settings
 from .graph import build_graph
 from .llm import build_qwen_llm
+from .llm_providers.factory import create_llm_client
 from .schemas import CareerState
 
 
@@ -55,6 +56,7 @@ def run_careerpilot(
     target_role: str = DEFAULT_TARGET_ROLE,
     offline: bool = False,
     model: str | None = None,
+    provider: str | None = None,
     settings: Settings | None = None,
 ) -> CareerState:
     """Run the CareerPilot LangGraph workflow.
@@ -64,7 +66,8 @@ def run_careerpilot(
         jd_text: Raw job description text.
         target_role: Target role displayed in the report.
         offline: If true, skip LLM calls and use deterministic fallback logic.
-        model: Optional model name override, e.g. qwen-plus.
+        model: Optional model name override, e.g. deepseek-v4-flash or qwen-plus.
+        provider: Optional LLM provider, e.g. deepseek or qwen.
         settings: Optional runtime settings, mainly useful for tests.
 
     Returns:
@@ -76,7 +79,16 @@ def run_careerpilot(
     if model:
         runtime_settings = replace(runtime_settings, model=model)
 
-    llm = None if offline else build_qwen_llm(runtime_settings)
+    if offline:
+        llm = None
+    elif provider:
+        llm = create_llm_client(provider=provider, model=model)
+    else:
+        # Backward-compatible path: keep the original Qwen/DashScope builder.
+        # If no DashScope key is configured, this returns None and the graph
+        # falls back to deterministic logic.
+        llm = build_qwen_llm(runtime_settings)
+
     graph = build_graph(llm=llm)
 
     return graph.invoke(
@@ -95,6 +107,7 @@ def run_careerpilot_from_files(
     target_role: str = DEFAULT_TARGET_ROLE,
     offline: bool = False,
     model: str | None = None,
+    provider: str | None = None,
 ) -> CareerState:
     """Run CareerPilot from local files and optionally write the markdown report."""
     result = run_careerpilot(
@@ -103,6 +116,7 @@ def run_careerpilot_from_files(
         target_role=target_role,
         offline=offline,
         model=model,
+        provider=provider,
     )
 
     if out_path:

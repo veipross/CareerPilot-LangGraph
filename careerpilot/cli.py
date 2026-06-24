@@ -16,7 +16,17 @@ def main() -> None:
     parser.add_argument("--out", default="outputs/report.md", help="Output markdown report")
     parser.add_argument("--target-role", default=DEFAULT_TARGET_ROLE)
     parser.add_argument("--offline", action="store_true", help="Run without LLM API")
-    parser.add_argument("--model", default=None, help="Override model name, e.g. qwen-plus")
+    parser.add_argument(
+        "--provider",
+        default="deepseek",
+        choices=["deepseek", "qwen"],
+        help="Online LLM provider. Ignored when --offline is set.",
+    )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="Override model name, e.g. deepseek-v4-flash or qwen-plus",
+    )
 
     args = parser.parse_args()
 
@@ -26,6 +36,7 @@ def main() -> None:
         out_path=args.out,
         target_role=args.target_role,
         offline=args.offline,
+        provider=None if args.offline else args.provider,
         model=args.model,
     )
 

@@ -29,3 +29,6 @@ outputs/*
 
 # Python packaging
 *.egg-info/
+.env
+.env.*
+!.env.example
