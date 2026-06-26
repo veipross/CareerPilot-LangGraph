@@ -5,12 +5,17 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal, Optional
 
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
+from .resume_parser import (
+    MAX_RESUME_FILE_BYTES,
+    ResumeParseError,
+    parse_resume_upload,
+)
 from .service import DEFAULT_TARGET_ROLE, run_careerpilot
 
 
@@ -29,7 +34,7 @@ app = FastAPI(
         "A LangGraph-based career preparation agent service "
         "with DeepSeek/Qwen online providers and offline fallback."
     ),
-    version="0.3.0",
+    version="0.4.0",
 )
 
 # check_dir=False 可以避免在静态资源目录尚未创建时，
@@ -77,6 +82,16 @@ class CareerRequest(BaseModel):
     )
 
 
+class ResumeExtractResponse(BaseModel):
+    """Metadata and text returned by the resume upload endpoint."""
+
+    text: str
+    filename: str
+    file_type: str
+    page_count: int
+    char_count: int
+
+
 class CareerResponse(BaseModel):
     """JSON response model returned by CareerPilot."""
 
@@ -98,7 +113,7 @@ def _run_analysis(
     target_role: str,
     offline: bool,
     provider: str,
-    model: str | None = None,
+    model: Optional[str] = None,
 ) -> CareerResponse:
     """Run CareerPilot and convert the LangGraph state to an API response."""
 
@@ -141,12 +156,17 @@ def _build_template_context(
     jd_text: str = "",
     model: str = "",
     report: str = "",
-    match_score: float | None = None,
+    match_score: Optional[float] = None,
     match_level: str = "",
-    match_breakdown: dict | None = None,
-    execution_trace: list[dict] | None = None,
-    pipeline_metrics: dict | None = None,
-    rag_context: list[dict] | None = None,
+    match_breakdown: Optional[dict] = None,
+    execution_trace: Optional[list[dict]] = None,
+    pipeline_metrics: Optional[dict] = None,
+    rag_context: Optional[list[dict]] = None,
+    resume_source: str = "text",
+    resume_filename: str = "",
+    resume_file_type: str = "",
+    resume_page_count: int = 0,
+    resume_char_count: int = 0,
     error: str = "",
 ) -> dict:
     """Build the shared context passed to the Jinja2 page template."""
@@ -165,6 +185,12 @@ def _build_template_context(
         "execution_trace": execution_trace or [],
         "pipeline_metrics": pipeline_metrics or {},
         "rag_context": rag_context or [],
+        "resume_source": resume_source,
+        "resume_filename": resume_filename,
+        "resume_file_type": resume_file_type,
+        "resume_page_count": resume_page_count,
+        "resume_char_count": resume_char_count,
+        "max_resume_file_mb": MAX_RESUME_FILE_BYTES // (1024 * 1024),
         "error": error,
     }
 
@@ -201,6 +227,36 @@ def web_analyze_get() -> RedirectResponse:
 
 
 @app.post(
+    "/resume/extract",
+    response_model=ResumeExtractResponse,
+)
+def extract_resume_file(
+    resume_file: UploadFile = File(...),
+) -> ResumeExtractResponse:
+    """Extract resume text from an uploaded PDF/TXT/Markdown file."""
+
+    try:
+        data = resume_file.file.read(MAX_RESUME_FILE_BYTES + 1)
+        parsed = parse_resume_upload(
+            filename=resume_file.filename or "resume",
+            content_type=resume_file.content_type,
+            data=data,
+        )
+    except ResumeParseError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        resume_file.file.close()
+
+    return ResumeExtractResponse(
+        text=parsed.text,
+        filename=parsed.filename,
+        file_type=parsed.file_type,
+        page_count=parsed.page_count,
+        char_count=parsed.char_count,
+    )
+
+
+@app.post(
     "/analyze",
     response_model=CareerResponse,
 )
@@ -229,7 +285,8 @@ def analyze(req: CareerRequest) -> CareerResponse:
 )
 def web_analyze(
     request: Request,
-    resume_text: str = Form(...),
+    resume_text: str = Form(""),
+    resume_file: Optional[UploadFile] = File(None),
     jd_text: str = Form(...),
     target_role: str = Form(DEFAULT_TARGET_ROLE),
     provider: str = Form("deepseek"),
@@ -239,14 +296,58 @@ def web_analyze(
     """Run CareerPilot from the browser form and render the report."""
 
     offline_enabled = offline == "on"
+    resolved_resume_text = resume_text.strip()
+    upload_metadata = {
+        "resume_source": "text",
+        "resume_filename": "",
+        "resume_file_type": "",
+        "resume_page_count": 0,
+        "resume_char_count": len(resolved_resume_text),
+    }
+
+    if resume_file is not None and resume_file.filename:
+        try:
+            uploaded_data = resume_file.file.read(MAX_RESUME_FILE_BYTES + 1)
+            parsed = parse_resume_upload(
+                filename=resume_file.filename,
+                content_type=resume_file.content_type,
+                data=uploaded_data,
+            )
+            resolved_resume_text = parsed.text
+            upload_metadata = {
+                "resume_source": "upload",
+                "resume_filename": parsed.filename,
+                "resume_file_type": parsed.file_type,
+                "resume_page_count": parsed.page_count,
+                "resume_char_count": parsed.char_count,
+            }
+        except ResumeParseError as exc:
+            context = _build_template_context(
+                target_role=target_role,
+                provider=provider,
+                offline=offline_enabled,
+                resume_text=resume_text,
+                jd_text=jd_text,
+                model=model,
+                error=str(exc),
+            )
+            return templates.TemplateResponse(
+                request=request,
+                name="index.html",
+                context=context,
+                status_code=400,
+            )
+        finally:
+            resume_file.file.close()
 
     context = _build_template_context(
         target_role=target_role,
         provider=provider,
         offline=offline_enabled,
-        resume_text=resume_text,
+        resume_text=resolved_resume_text,
         jd_text=jd_text,
         model=model,
+        **upload_metadata,
     )
 
     if provider not in {"deepseek", "qwen"}:
@@ -261,8 +362,8 @@ def web_analyze(
             status_code=400,
         )
 
-    if not resume_text.strip():
-        context["error"] = "简历内容不能为空。"
+    if not resolved_resume_text:
+        context["error"] = "请上传简历文件，或在文本框中粘贴简历内容。"
         return templates.TemplateResponse(
             request=request,
             name="index.html",
@@ -281,7 +382,7 @@ def web_analyze(
 
     try:
         response = _run_analysis(
-            resume_text=resume_text.strip(),
+            resume_text=resolved_resume_text,
             jd_text=jd_text.strip(),
             target_role=target_role.strip() or DEFAULT_TARGET_ROLE,
             offline=offline_enabled,

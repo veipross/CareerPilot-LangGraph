@@ -7,7 +7,7 @@
     <title>CareerPilot-LangGraph</title>
     <link
         rel="stylesheet"
-        href="{{ url_for('static', path='/style.css') }}?v=phase2-1"
+        href="{{ url_for('static', path='/style.css') }}?v=phase3-pdf"
     >
 </head>
 
@@ -39,7 +39,7 @@
             </div>
         </div>
 
-        <form id="analysis-form" action="/web/analyze" method="post">
+        <form id="analysis-form" action="/web/analyze" method="post" enctype="multipart/form-data">
 
             <label for="target_role">目标岗位</label>
             <input
@@ -95,12 +95,46 @@
                 </span>
             </label>
 
-            <label for="resume_text">简历内容</label>
+            <div class="resume-input-heading">
+                <div>
+                    <label for="resume_file">上传简历文件</label>
+                    <p>支持 PDF、TXT、Markdown，最大 {{ max_resume_file_mb }} MB。上传文件时将优先使用文件内容。</p>
+                </div>
+                <span class="optional-badge">推荐 PDF</span>
+            </div>
+
+            <label class="file-drop-zone" for="resume_file">
+                <input
+                    id="resume_file"
+                    name="resume_file"
+                    type="file"
+                    accept=".pdf,.txt,.md,.markdown,application/pdf,text/plain,text/markdown"
+                >
+                <span class="file-drop-icon">PDF</span>
+                <span class="file-drop-copy">
+                    <strong>点击选择简历，或拖放到这里</strong>
+                    <small id="file-name-label">未选择文件，也可以继续粘贴文本</small>
+                </span>
+            </label>
+
+            {% if resume_source == "upload" %}
+            <div class="upload-success">
+                <strong>已解析 {{ resume_filename }}</strong>
+                <span>
+                    {{ resume_file_type }}
+                    · {{ resume_page_count }} 页
+                    · {{ resume_char_count }} 字符
+                </span>
+            </div>
+            {% endif %}
+
+            <div class="text-divider"><span>或者粘贴简历文本</span></div>
+
+            <label for="resume_text" class="visually-hidden">简历内容</label>
             <textarea
                 id="resume_text"
                 name="resume_text"
                 placeholder="请在这里粘贴候选人的简历文本……"
-                required
             >{{ resume_text }}</textarea>
 
             <label for="jd_text">岗位 JD</label>
@@ -309,6 +343,18 @@
 
 <script>
 const analysisForm = document.getElementById("analysis-form");
+const resumeFileInput = document.getElementById("resume_file");
+const resumeTextInput = document.getElementById("resume_text");
+const fileNameLabel = document.getElementById("file-name-label");
+
+if (resumeFileInput && fileNameLabel) {
+    resumeFileInput.addEventListener("change", () => {
+        const file = resumeFileInput.files && resumeFileInput.files[0];
+        fileNameLabel.textContent = file
+            ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(2)} MB`
+            : "未选择文件，也可以继续粘贴文本";
+    });
+}
 
 function resetAnalysisUI() {
     const button = document.getElementById("submit-button");
@@ -328,13 +374,31 @@ window.addEventListener("DOMContentLoaded", resetAnalysisUI);
 window.addEventListener("pageshow", resetAnalysisUI);
 
 if (analysisForm) {
-    analysisForm.addEventListener("submit", () => {
+    analysisForm.addEventListener("submit", (event) => {
+        const hasFile = Boolean(
+            resumeFileInput
+            && resumeFileInput.files
+            && resumeFileInput.files.length
+        );
+        const hasText = Boolean(
+            resumeTextInput
+            && resumeTextInput.value.trim()
+        );
+
+        if (!hasFile && !hasText) {
+            event.preventDefault();
+            alert("请上传简历文件，或在文本框中粘贴简历内容。");
+            return;
+        }
+
         const button = document.getElementById("submit-button");
         const loadingPanel = document.getElementById("loading-panel");
 
         if (button) {
             button.disabled = true;
-            button.textContent = "正在运行 Agent，请稍候…";
+            button.textContent = hasFile
+                ? "正在解析简历并运行 Agent…"
+                : "正在运行 Agent，请稍候…";
         }
 
         if (loadingPanel) {

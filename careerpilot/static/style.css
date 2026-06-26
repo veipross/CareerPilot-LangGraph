@@ -878,3 +878,151 @@ textarea:focus {
         margin-left: 0;
     }
 }
+
+/* Phase 3: resume file upload */
+.resume-input-heading {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    margin-top: 18px;
+}
+
+.resume-input-heading label {
+    margin: 0 0 4px;
+}
+
+.resume-input-heading p {
+    margin: 0;
+    color: #8792a5;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.optional-badge {
+    flex-shrink: 0;
+    padding: 5px 9px;
+    border: 1px solid #d5e2fa;
+    border-radius: 999px;
+    background: #f0f5ff;
+    color: #5872a5;
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.file-drop-zone {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    margin: 10px 0 0;
+    padding: 15px;
+    border: 1.5px dashed #b9c9e7;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #f8fbff, #f4f7fc);
+    cursor: pointer;
+    transition: border-color 0.16s, background 0.16s, transform 0.16s;
+}
+
+.file-drop-zone:hover {
+    border-color: #708cc9;
+    background: #f5f8ff;
+    transform: translateY(-1px);
+}
+
+.file-drop-zone input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.file-drop-icon {
+    display: grid;
+    place-items: center;
+    width: 46px;
+    height: 46px;
+    flex-shrink: 0;
+    border-radius: 12px;
+    background: #172033;
+    color: white;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+}
+
+.file-drop-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.file-drop-copy strong {
+    color: #273349;
+    font-size: 13px;
+}
+
+.file-drop-copy small {
+    overflow: hidden;
+    color: #7e8ba0;
+    font-size: 12px;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.upload-success {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 10px;
+    padding: 10px 12px;
+    border: 1px solid #ccead9;
+    border-radius: 11px;
+    background: #f0fbf5;
+    color: #287550;
+    font-size: 12px;
+}
+
+.upload-success span {
+    color: #5f8674;
+}
+
+.text-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 16px 0 9px;
+    color: #96a1b2;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.text-divider::before,
+.text-divider::after {
+    height: 1px;
+    flex: 1;
+    background: #e1e7f0;
+    content: "";
+}
+
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    border: 0;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+@media (max-width: 680px) {
+    .upload-success {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}
