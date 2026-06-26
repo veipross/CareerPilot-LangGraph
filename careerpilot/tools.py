@@ -346,7 +346,7 @@ def retrieve_knowledge(
     candidates = []
     for path in sorted(root.glob("*.txt")):
         text = path.read_text(encoding="utf-8", errors="ignore")
-        for chunk in split_text_into_chunks(text):
+        for chunk_index, chunk in enumerate(split_text_into_chunks(text), start=1):
             chunk_lower = chunk.lower()
             matched = [
                 terms[i]
@@ -357,15 +357,41 @@ def retrieve_knowledge(
             if not matched:
                 continue
 
-            score = min(100, 20 + 15 * len(matched))
+            matched = list(dict.fromkeys(matched))
+            # This is a transparent keyword relevance score, not a vector
+            # similarity score. Normalize by the query size so several chunks
+            # do not all saturate at 100 merely because the query is long.
+            denominator = max(1, min(len(terms), 12))
+            coverage = len(matched) / denominator
+            score = min(99, round(25 + 74 * coverage))
+            preview = chunk if len(chunk) <= 240 else chunk[:240].rstrip() + "..."
             candidates.append(
                 {
                     "source": str(path),
+                    "source_name": path.name,
+                    "chunk_index": chunk_index,
                     "score": score,
                     "content": chunk,
+                    "preview": preview,
                     "matched_terms": matched,
+                    "retrieval_reason": (
+                        f"命中 {len(matched)} 个查询词：{', '.join(matched)}"
+                    ),
                 }
             )
 
-    candidates.sort(key=lambda item: item["score"], reverse=True)
-    return candidates[:top_k]
+    candidates.sort(
+        key=lambda item: (
+            item["score"],
+            len(item["matched_terms"]),
+            item["source_name"],
+            -item["chunk_index"],
+        ),
+        reverse=True,
+    )
+
+    selected = candidates[:top_k]
+    for rank, item in enumerate(selected, start=1):
+        item["rank"] = rank
+
+    return selected

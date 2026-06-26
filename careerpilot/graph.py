@@ -1,12 +1,14 @@
 """LangGraph workflow for the career agent."""
 from __future__ import annotations
 
-from typing import Any, Dict
+from time import perf_counter
+import re
+from typing import Any, Callable, Dict
 
 from langgraph.graph import END, START, StateGraph
 
 from .llm import invoke_json
-from .schemas import CareerState, InterviewPlan, JDProfile, MatchReport, OpenSourceRecommendation, ProjectPlan, RAGContext, ResumeProfile, ResumeRewrite
+from .schemas import CareerState, ExecutionTraceItem, InterviewPlan, JDProfile, MatchReport, OpenSourceRecommendation, ProjectPlan, RAGContext, ResumeProfile, ResumeRewrite
 from .tools import (
     canonicalize_skill_items,
     classify_match_level,
@@ -22,6 +24,261 @@ from .tools import (
 
 def _merge_errors(state: CareerState, message: str) -> Dict[str, Any]:
     return {"errors": [*(state.get("errors") or []), message]}
+
+
+NODE_LABELS = {
+    "extract_profile": "简历解析",
+    "analyze_jd": "JD 分析",
+    "match": "技能匹配",
+    "rag_retriever": "RAG 知识检索",
+    "project_planner": "项目路线规划",
+    "github_recommender": "开源项目推荐",
+    "resume_rewriter": "简历改写",
+    "interview_planner": "面试题生成",
+    "final_report": "最终报告",
+}
+
+
+
+def _first_value(data: Dict[str, Any], *keys: str) -> Any:
+    """Return the first present, non-empty value from a model payload."""
+
+    for key in keys:
+        if key in data and data[key] not in (None, "", [], {}):
+            return data[key]
+    return None
+
+
+def _as_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    return str(value).strip()
+
+
+def _as_text_list(value: Any) -> list[str]:
+    """Normalize common LLM list variants into a clean string list."""
+
+    if value is None:
+        return []
+
+    if isinstance(value, dict):
+        value = list(value.values())
+
+    if isinstance(value, (tuple, set)):
+        value = list(value)
+
+    if isinstance(value, list):
+        items: list[str] = []
+        for item in value:
+            if isinstance(item, dict):
+                text = _as_text(
+                    _first_value(
+                        item,
+                        "name",
+                        "title",
+                        "content",
+                        "description",
+                        "value",
+                    )
+                )
+            else:
+                text = _as_text(item)
+            if text:
+                items.append(text)
+        return list(dict.fromkeys(items))
+
+    text = _as_text(value)
+    if not text:
+        return []
+
+    parts = re.split(r"[\n；;、]+|(?<!\d),(?!\d)", text)
+    items = [part.strip(" -•\t") for part in parts if part.strip(" -•\t")]
+    return list(dict.fromkeys(items))
+
+
+def _normalize_profile_payload(data: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "education": _as_text(
+            _first_value(data, "education", "education_background", "学历", "教育背景")
+        ),
+        "target_roles": _as_text_list(
+            _first_value(data, "target_roles", "target_positions", "目标岗位", "求职方向")
+        ),
+        "skills": _as_text_list(
+            _first_value(data, "skills", "technical_skills", "技能", "技术栈")
+        ),
+        "projects": _as_text_list(
+            _first_value(data, "projects", "project_experience", "项目", "项目经历")
+        ),
+        "strengths": _as_text_list(
+            _first_value(data, "strengths", "advantages", "优势", "亮点")
+        ),
+        "missing_signals": _as_text_list(
+            _first_value(data, "missing_signals", "gaps", "缺失信号", "不足")
+        ),
+    }
+
+
+def _normalize_interview_payload(data: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "questions": _as_text_list(
+            _first_value(
+                data,
+                "questions",
+                "interview_questions",
+                "high_frequency_questions",
+                "高频问题",
+                "面试问题",
+            )
+        ),
+        "talking_points": _as_text_list(
+            _first_value(data, "talking_points", "key_points", "讲解要点", "回答要点")
+        ),
+        "study_plan": _as_text_list(
+            _first_value(data, "study_plan", "three_week_plan", "三周计划", "学习计划")
+        ),
+    }
+
+
+def _summarize_node_output(node_name: str, update: Dict[str, Any]) -> str:
+    """Build a concise human-readable summary for one node output."""
+
+    if node_name == "extract_profile":
+        profile = update.get("profile") or {}
+        return (
+            f"抽取 {len(profile.get('skills', []))} 项技能、"
+            f"{len(profile.get('projects', []))} 条项目经历"
+        )
+
+    if node_name == "analyze_jd":
+        jd = update.get("jd_profile") or {}
+        requirement_count = len(
+            list(
+                dict.fromkeys(
+                    [
+                        *jd.get("core_requirements", []),
+                        *jd.get("tools", []),
+                    ]
+                )
+            )
+        )
+        return f"识别岗位 {jd.get('role', '未命名')}，提取 {requirement_count} 项要求"
+
+    if node_name == "match":
+        match = update.get("match_report") or {}
+        return (
+            f"匹配分 {float(match.get('score', 0)):.1f}，"
+            f"命中 {match.get('matched_count', 0)}/{match.get('required_count', 0)} 项技能"
+        )
+
+    if node_name == "rag_retriever":
+        items = update.get("rag_context") or []
+        sources = {
+            item.get("source_name") or item.get("source")
+            for item in items
+            if item.get("source_name") or item.get("source")
+        }
+        return f"召回 {len(items)} 个知识片段，来自 {len(sources)} 个本地来源"
+
+    if node_name == "project_planner":
+        plan = update.get("project_plan") or {}
+        return (
+            f"生成 {len(plan.get('features', []))} 项功能建议和 "
+            f"{len(plan.get('milestones', []))} 个里程碑"
+        )
+
+    if node_name == "github_recommender":
+        items = update.get("github_recommendations") or []
+        return f"推荐 {len(items)} 个开源仓库与贡献切入点"
+
+    if node_name == "resume_rewriter":
+        rewrite = update.get("resume_rewrite") or {}
+        return f"生成 {len(rewrite.get('rewritten_project_bullets', []))} 条简历项目 bullet"
+
+    if node_name == "interview_planner":
+        plan = update.get("interview_plan") or {}
+        return f"生成 {len(plan.get('questions', []))} 道面试问题"
+
+    if node_name == "final_report":
+        report = update.get("final_report") or ""
+        return f"汇总完成，报告长度 {len(report)} 字符"
+
+    return "节点执行完成"
+
+
+def _build_pipeline_metrics(trace: list[dict[str, Any]]) -> Dict[str, Any]:
+    """Aggregate trace entries into lightweight pipeline metrics."""
+
+    total_duration_ms = round(
+        sum(float(item.get("duration_ms", 0.0)) for item in trace),
+        1,
+    )
+    slowest = max(
+        trace,
+        key=lambda item: float(item.get("duration_ms", 0.0)),
+        default={},
+    )
+
+    return {
+        "node_count": len(trace),
+        "completed_count": sum(
+            1 for item in trace if item.get("status") == "completed"
+        ),
+        "total_duration_ms": total_duration_ms,
+        "slowest_node": slowest.get("node", ""),
+        "slowest_label": slowest.get("label", ""),
+        "slowest_duration_ms": round(
+            float(slowest.get("duration_ms", 0.0)),
+            1,
+        ),
+    }
+
+
+def _instrument_node(
+    node_name: str,
+    function: Callable[[CareerState], Dict[str, Any]],
+) -> Callable[[CareerState], Dict[str, Any]]:
+    """Wrap a LangGraph node and append an actual execution trace entry."""
+
+    label = NODE_LABELS.get(node_name, node_name)
+
+    def wrapped(state: CareerState) -> Dict[str, Any]:
+        started_at = perf_counter()
+        try:
+            update = function(state)
+        except Exception as exc:
+            duration_ms = round((perf_counter() - started_at) * 1000, 1)
+            raise RuntimeError(
+                f"LangGraph 节点 {label} ({node_name}) 执行失败，"
+                f"耗时 {duration_ms:.1f} ms：{exc}"
+            ) from exc
+
+        duration_ms = round((perf_counter() - started_at) * 1000, 1)
+        prior_trace = list(state.get("execution_trace") or [])
+        trace_item = ExecutionTraceItem(
+            index=len(prior_trace) + 1,
+            node=node_name,
+            label=label,
+            status="completed",
+            duration_ms=duration_ms,
+            summary=_summarize_node_output(node_name, update),
+            output_keys=sorted(
+                key
+                for key in update.keys()
+                if key not in {"execution_trace", "pipeline_metrics"}
+            ),
+        ).model_dump()
+        trace = [*prior_trace, trace_item]
+
+        return {
+            **update,
+            "execution_trace": trace,
+            "pipeline_metrics": _build_pipeline_metrics(trace),
+        }
+
+    return wrapped
 
 
 def extract_profile_node(state: CareerState, llm: Any | None = None) -> Dict[str, Any]:
@@ -45,9 +302,21 @@ def extract_profile_node(state: CareerState, llm: Any | None = None) -> Dict[str
 """
     data = invoke_json(llm, prompt)
     try:
-        return {"profile": ResumeProfile(**data).model_dump()}
+        profile = ResumeProfile(**_normalize_profile_payload(data))
+        if not profile.skills and not profile.projects:
+            raise ValueError("model payload contains no usable skills or projects")
+        return {"profile": profile.model_dump()}
     except Exception:
-        return {**_merge_errors(state, "LLM resume profile parsing failed; used offline extractor."), "profile": ResumeProfile(skills=extract_skills(resume_text), projects=extract_project_lines(resume_text)).model_dump()}
+        return {
+            **_merge_errors(
+                state,
+                "LLM resume profile parsing was incomplete; used deterministic extractor.",
+            ),
+            "profile": ResumeProfile(
+                skills=extract_skills(resume_text),
+                projects=extract_project_lines(resume_text),
+            ).model_dump(),
+        }
 
 
 def analyze_jd_node(state: CareerState, llm: Any | None = None) -> Dict[str, Any]:
@@ -294,9 +563,22 @@ def interview_planner_node(state: CareerState, llm: Any | None = None) -> Dict[s
 """
     data = invoke_json(llm, prompt)
     try:
-        return {"interview_plan": InterviewPlan(**data).model_dump()}
+        plan = InterviewPlan(**_normalize_interview_payload(data))
+        if not plan.questions:
+            raise ValueError("model payload contains no interview questions")
+        if not plan.talking_points:
+            plan.talking_points = default.talking_points
+        if not plan.study_plan:
+            plan.study_plan = default.study_plan
+        return {"interview_plan": plan.model_dump()}
     except Exception:
-        return {**_merge_errors(state, "LLM interview plan failed; used default plan."), "interview_plan": default.model_dump()}
+        return {
+            **_merge_errors(
+                state,
+                "LLM interview plan was empty or invalid; used verified default plan.",
+            ),
+            "interview_plan": default.model_dump(),
+        }
 
 
 def final_report_node(state: CareerState) -> Dict[str, Any]:
@@ -356,11 +638,15 @@ def final_report_node(state: CareerState) -> Dict[str, Any]:
                 content = content[:220] + "..."
 
             matched = ", ".join(item.get("matched_terms", []))
+            source_name = item.get("source_name") or item.get("source", "unknown")
 
             blocks.append(
-                f"### {item.get('source', 'unknown')}\n"
-                f"- 检索分：{item.get('score', 0)} / 100\n"
+                f"### Top {item.get('rank', 0)} · {source_name}\n"
+                f"- 来源路径：{item.get('source', 'unknown')}\n"
+                f"- 文档片段：Chunk {item.get('chunk_index', 0)}\n"
+                f"- 关键词相关度：{item.get('score', 0)} / 100\n"
                 f"- 命中词：{matched or '暂无'}\n"
+                f"- 召回依据：{item.get('retrieval_reason', '') or '关键词重叠'}\n"
                 f"- 片段：{content}"
             )
 
@@ -403,12 +689,23 @@ def final_report_node(state: CareerState) -> Dict[str, Any]:
 ### RAG 知识库检索结果
 {rag_cards(rag_context)}
 
-## 7. 可写入简历的项目描述
-{rewrite.get('summary', '')}
+## 7. 可写入简历的已实现项目描述
+基于 LangGraph 构建求职分析 Agent，完成简历解析、JD 分析、技能匹配、本地知识检索、项目规划、简历改写与面试准备的多节点工作流。
 
-{bullets(rewrite.get('rewritten_project_bullets', []))}
+- 基于 LangGraph 设计 9 节点状态图，记录节点输出、耗时、最慢节点与完整执行轨迹。
+- 接入 DeepSeek/Qwen OpenAI-compatible API，并提供 Offline 确定性降级、空响应重试和结构化 JSON 校验。
+- 设计标准化技能覆盖率评分，提供高、中、低匹配评估样例及可解释评分公式。
+- 实现本地文本知识库的关键词检索与来源追踪，展示来源文件、Chunk、命中词和关键词相关度。
+- 使用 FastAPI 提供 REST API 与 Web Demo，支持 Markdown 报告复制/下载，并通过 pytest 覆盖核心流程。
 
-关键词：{', '.join(rewrite.get('keywords_to_add', []))}
+关键词：LangGraph, DeepSeek, Qwen, FastAPI, Agent, 本地知识检索, 可观测性, pytest
+
+### 尚未实现、不可直接写成已完成
+- FAISS/Milvus 向量检索与 Embedding 召回
+- Docker 容器化部署
+- Function Calling / Tool Calling 真实外部工具执行
+- GitHub API / Issue 实时检索
+- 分析历史持久化与流式节点进度
 
 ## 8. 面试准备
 ### 高频问题
@@ -429,15 +726,54 @@ def build_graph(llm: Any | None = None):
     """Build the LangGraph state machine."""
 
     workflow = StateGraph(CareerState)
-    workflow.add_node("extract_profile", lambda state: extract_profile_node(state, llm))
-    workflow.add_node("analyze_jd", lambda state: analyze_jd_node(state, llm))
-    workflow.add_node("match", match_node)
-    workflow.add_node("rag_retriever", rag_retriever_node)
-    workflow.add_node("project_planner", lambda state: project_planner_node(state, llm))
-    workflow.add_node("github_recommender", github_recommender_node)
-    workflow.add_node("resume_rewriter", lambda state: resume_rewriter_node(state, llm))
-    workflow.add_node("interview_planner", lambda state: interview_planner_node(state, llm))
-    workflow.add_node("final_report", final_report_node)
+    workflow.add_node(
+        "extract_profile",
+        _instrument_node(
+            "extract_profile",
+            lambda state: extract_profile_node(state, llm),
+        ),
+    )
+    workflow.add_node(
+        "analyze_jd",
+        _instrument_node(
+            "analyze_jd",
+            lambda state: analyze_jd_node(state, llm),
+        ),
+    )
+    workflow.add_node("match", _instrument_node("match", match_node))
+    workflow.add_node(
+        "rag_retriever",
+        _instrument_node("rag_retriever", rag_retriever_node),
+    )
+    workflow.add_node(
+        "project_planner",
+        _instrument_node(
+            "project_planner",
+            lambda state: project_planner_node(state, llm),
+        ),
+    )
+    workflow.add_node(
+        "github_recommender",
+        _instrument_node("github_recommender", github_recommender_node),
+    )
+    workflow.add_node(
+        "resume_rewriter",
+        _instrument_node(
+            "resume_rewriter",
+            lambda state: resume_rewriter_node(state, llm),
+        ),
+    )
+    workflow.add_node(
+        "interview_planner",
+        _instrument_node(
+            "interview_planner",
+            lambda state: interview_planner_node(state, llm),
+        ),
+    )
+    workflow.add_node(
+        "final_report",
+        _instrument_node("final_report", final_report_node),
+    )
 
     workflow.add_edge(START, "extract_profile")
     workflow.add_edge("extract_profile", "analyze_jd")

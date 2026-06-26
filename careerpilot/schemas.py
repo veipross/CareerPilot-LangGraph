@@ -20,7 +20,21 @@ class CareerState(TypedDict, total=False):
     resume_rewrite: Dict[str, Any]
     interview_plan: Dict[str, Any]
     final_report: str
+    execution_trace: List[Dict[str, Any]]
+    pipeline_metrics: Dict[str, Any]
     errors: List[str]
+
+
+class ExecutionTraceItem(BaseModel):
+    """One completed LangGraph node execution record."""
+
+    index: int = 0
+    node: str
+    label: str
+    status: str = "completed"
+    duration_ms: float = 0.0
+    summary: str = ""
+    output_keys: List[str] = Field(default_factory=list)
 
 
 class ResumeProfile(BaseModel):
@@ -67,9 +81,14 @@ class ProjectPlan(BaseModel):
 
 class RAGContext(BaseModel):
     source: str
+    source_name: str = ""
+    rank: int = 0
+    chunk_index: int = 0
     score: int = 0
     content: str
+    preview: str = ""
     matched_terms: List[str] = Field(default_factory=list)
+    retrieval_reason: str = ""
 
 
 class OpenSourceRecommendation(BaseModel):

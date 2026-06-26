@@ -7,7 +7,7 @@
     <title>CareerPilot-LangGraph</title>
     <link
         rel="stylesheet"
-        href="{{ url_for('static', path='/style.css') }}"
+        href="{{ url_for('static', path='/style.css') }}?v=phase2-1"
     >
 </head>
 
@@ -39,7 +39,7 @@
             </div>
         </div>
 
-        <form action="/web/analyze" method="post">
+        <form id="analysis-form" action="/web/analyze" method="post">
 
             <label for="target_role">目标岗位</label>
             <input
@@ -111,9 +111,17 @@
                 required
             >{{ jd_text }}</textarea>
 
-            <button class="primary-button" type="submit">
+            <button id="submit-button" class="primary-button" type="submit">
                 运行 CareerPilot Agent
             </button>
+
+            <div id="loading-panel" class="loading-panel" hidden>
+                <div class="loading-spinner" aria-hidden="true"></div>
+                <div>
+                    <strong>正在执行 LangGraph 工作流</strong>
+                    <p>在线模式可能需要等待多个模型节点完成，请勿重复提交。</p>
+                </div>
+            </div>
 
         </form>
     </section>
@@ -186,7 +194,98 @@
             </button>
         </div>
 
-        <pre id="report-content" class="report-content">{{ report }}</pre>
+        {% if execution_trace %}
+        <details class="insight-section" open>
+            <summary>
+                <span>
+                    <strong>LangGraph 执行轨迹</strong>
+                    <small>真实节点输出与耗时</small>
+                </span>
+                <span class="summary-metric">
+                    {{ pipeline_metrics.get("completed_count", execution_trace|length) }} / {{ pipeline_metrics.get("node_count", execution_trace|length) }} 完成
+                    · {{ "%.1f"|format(pipeline_metrics.get("total_duration_ms", 0)) }} ms
+                </span>
+            </summary>
+
+            <div class="trace-list">
+                {% for item in execution_trace %}
+                <div class="trace-item">
+                    <div class="trace-marker">
+                        <span>{{ item.get("index", loop.index) }}</span>
+                    </div>
+                    <div class="trace-body">
+                        <div class="trace-title-row">
+                            <div>
+                                <strong>{{ item.get("label", item.get("node", "节点")) }}</strong>
+                                <code>{{ item.get("node", "") }}</code>
+                            </div>
+                            <span class="trace-duration">
+                                {{ "%.1f"|format(item.get("duration_ms", 0)) }} ms
+                            </span>
+                        </div>
+                        <p>{{ item.get("summary", "节点执行完成") }}</p>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            {% if pipeline_metrics.get("slowest_label") %}
+            <p class="observability-note">
+                最慢节点：
+                <strong>{{ pipeline_metrics.get("slowest_label") }}</strong>
+                （{{ "%.1f"|format(pipeline_metrics.get("slowest_duration_ms", 0)) }} ms）
+            </p>
+            {% endif %}
+        </details>
+        {% endif %}
+
+        <details class="insight-section rag-section" {% if rag_context %}open{% endif %}>
+            <summary>
+                <span>
+                    <strong>RAG 检索来源</strong>
+                    <small>展示召回依据，避免黑盒建议</small>
+                </span>
+                <span class="summary-metric">{{ rag_context|length }} 个片段</span>
+            </summary>
+
+            {% if rag_context %}
+            <div class="rag-grid">
+                {% for item in rag_context %}
+                <article class="rag-card">
+                    <div class="rag-card-header">
+                        <span class="rank-badge">Top {{ item.get("rank", loop.index) }}</span>
+                        <span class="retrieval-score">关键词相关度 {{ item.get("score", 0) }} / 100</span>
+                    </div>
+                    <h3>{{ item.get("source_name") or item.get("source", "unknown") }}</h3>
+                    <p class="rag-meta">
+                        Chunk {{ item.get("chunk_index", 0) }} · {{ item.get("retrieval_reason", "关键词重叠") }}
+                    </p>
+                    <div class="term-list">
+                        {% for term in item.get("matched_terms", []) %}
+                        <span>{{ term }}</span>
+                        {% endfor %}
+                    </div>
+                    <p class="rag-preview">{{ item.get("preview") or item.get("content", "") }}</p>
+                    <code class="source-path">{{ item.get("source", "") }}</code>
+                </article>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="no-rag-state">
+                当前输入未从本地知识库召回相关片段。评分结果仍可正常生成。
+            </div>
+            {% endif %}
+        </details>
+
+        <details class="insight-section report-section" open>
+            <summary>
+                <span>
+                    <strong>完整 Markdown 报告</strong>
+                    <small>可复制或下载</small>
+                </span>
+            </summary>
+            <pre id="report-content" class="report-content">{{ report }}</pre>
+        </details>
 
         {% else %}
 
@@ -209,6 +308,41 @@
 </div>
 
 <script>
+const analysisForm = document.getElementById("analysis-form");
+
+function resetAnalysisUI() {
+    const button = document.getElementById("submit-button");
+    const loadingPanel = document.getElementById("loading-panel");
+
+    if (button) {
+        button.disabled = false;
+        button.textContent = "运行 CareerPilot Agent";
+    }
+
+    if (loadingPanel) {
+        loadingPanel.hidden = true;
+    }
+}
+
+window.addEventListener("DOMContentLoaded", resetAnalysisUI);
+window.addEventListener("pageshow", resetAnalysisUI);
+
+if (analysisForm) {
+    analysisForm.addEventListener("submit", () => {
+        const button = document.getElementById("submit-button");
+        const loadingPanel = document.getElementById("loading-panel");
+
+        if (button) {
+            button.disabled = true;
+            button.textContent = "正在运行 Agent，请稍候…";
+        }
+
+        if (loadingPanel) {
+            loadingPanel.hidden = false;
+        }
+    });
+}
+
 function copyReport() {
     const report = document.getElementById("report-content");
 

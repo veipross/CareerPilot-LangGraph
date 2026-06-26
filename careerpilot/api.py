@@ -29,7 +29,7 @@ app = FastAPI(
         "A LangGraph-based career preparation agent service "
         "with DeepSeek/Qwen online providers and offline fallback."
     ),
-    version="0.2.0",
+    version="0.3.0",
 )
 
 # check_dir=False 可以避免在静态资源目录尚未创建时，
@@ -84,6 +84,9 @@ class CareerResponse(BaseModel):
     match_score: Optional[float] = None
     match_level: Optional[str] = None
     match_breakdown: dict = Field(default_factory=dict)
+    execution_trace: list[dict] = Field(default_factory=list)
+    pipeline_metrics: dict = Field(default_factory=dict)
+    rag_context: list[dict] = Field(default_factory=list)
     provider: str
     offline: bool
 
@@ -121,6 +124,9 @@ def _run_analysis(
             "score_formula": match_report.get("score_formula", ""),
             "scoring_method": match_report.get("scoring_method", ""),
         },
+        execution_trace=result.get("execution_trace") or [],
+        pipeline_metrics=result.get("pipeline_metrics") or {},
+        rag_context=result.get("rag_context") or [],
         provider="offline" if offline else provider,
         offline=offline,
     )
@@ -138,6 +144,9 @@ def _build_template_context(
     match_score: float | None = None,
     match_level: str = "",
     match_breakdown: dict | None = None,
+    execution_trace: list[dict] | None = None,
+    pipeline_metrics: dict | None = None,
+    rag_context: list[dict] | None = None,
     error: str = "",
 ) -> dict:
     """Build the shared context passed to the Jinja2 page template."""
@@ -153,6 +162,9 @@ def _build_template_context(
         "match_score": match_score,
         "match_level": match_level,
         "match_breakdown": match_breakdown or {},
+        "execution_trace": execution_trace or [],
+        "pipeline_metrics": pipeline_metrics or {},
+        "rag_context": rag_context or [],
         "error": error,
     }
 
@@ -172,6 +184,19 @@ def home(request: Request):
         request=request,
         name="index.html",
         context=_build_template_context(),
+    )
+
+
+@app.get(
+    "/web/analyze",
+    include_in_schema=False,
+)
+def web_analyze_get() -> RedirectResponse:
+    """Redirect browser refreshes back to the CareerPilot homepage."""
+
+    return RedirectResponse(
+        url="/",
+        status_code=303,
     )
 
 
@@ -196,19 +221,6 @@ def analyze(req: CareerRequest) -> CareerResponse:
             status_code=500,
             detail=f"CareerPilot analysis failed: {exc}",
         ) from exc
-
-
-@app.get(
-    "/web/analyze",
-    include_in_schema=False,
-)
-def web_analyze_get() -> RedirectResponse:
-    """Redirect browser refreshes back to the CareerPilot homepage."""
-
-    return RedirectResponse(
-        url="/",
-        status_code=303,
-    )
 
 
 @app.post(
@@ -281,6 +293,9 @@ def web_analyze(
         context["match_score"] = response.match_score
         context["match_level"] = response.match_level or ""
         context["match_breakdown"] = response.match_breakdown
+        context["execution_trace"] = response.execution_trace
+        context["pipeline_metrics"] = response.pipeline_metrics
+        context["rag_context"] = response.rag_context
 
     except Exception as exc:
         context["error"] = str(exc)

@@ -167,3 +167,45 @@ python scripts/evaluate_matching.py
 ```bash
 pytest -q
 ```
+
+## 11. LangGraph 可观测性与 RAG 来源解释
+
+每次运行都会在最终状态中返回：
+
+- `execution_trace`：9 个 LangGraph 节点的执行顺序、状态、耗时、输出摘要和输出字段；
+- `pipeline_metrics`：完成节点数、累计节点耗时和最慢节点；
+- `rag_context`：RAG 召回排名、来源文件、Chunk 编号、命中词、召回依据和内容预览。
+
+Web 页面会把这些信息渲染成独立的“执行轨迹”和“RAG 检索来源”面板，便于演示 Agent 并非黑盒串联，也方便定位慢节点和检索质量问题。
+
+JSON API 的响应示例字段：
+
+```json
+{
+  "execution_trace": [
+    {
+      "index": 1,
+      "node": "extract_profile",
+      "label": "简历解析",
+      "status": "completed",
+      "duration_ms": 2.4,
+      "summary": "抽取 8 项技能、3 条项目经历"
+    }
+  ],
+  "pipeline_metrics": {
+    "node_count": 9,
+    "completed_count": 9,
+    "total_duration_ms": 18.6,
+    "slowest_node": "rag_retriever"
+  },
+  "rag_context": [
+    {
+      "rank": 1,
+      "source_name": "rag_notes.txt",
+      "chunk_index": 1,
+      "score": 65,
+      "matched_terms": ["RAG", "Agent"]
+    }
+  ]
+}
+```
