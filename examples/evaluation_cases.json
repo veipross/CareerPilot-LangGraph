@@ -1,0 +1,17 @@
+[
+  {
+    "name": "高匹配",
+    "resume_text": "使用 Python、LangGraph、RAG、Agent、FastAPI 和 Docker 构建求职分析系统。",
+    "jd_text": "岗位要求：Python、LangGraph、RAG、Agent、FastAPI、Docker"
+  },
+  {
+    "name": "中匹配",
+    "resume_text": "使用 Python、LangGraph 和 Agent 构建多节点工作流。",
+    "jd_text": "岗位要求：Python、LangGraph、RAG、Agent、FastAPI、Docker"
+  },
+  {
+    "name": "低匹配",
+    "resume_text": "主要使用 Python 完成传统数据处理项目。",
+    "jd_text": "岗位要求：Python、LangGraph、RAG、Agent、FastAPI、Docker"
+  }
+]

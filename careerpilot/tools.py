@@ -12,7 +12,13 @@ from typing import Dict, Iterable, List, Tuple
 CANONICAL_SKILLS = [
     "Python",
     "C++",
+    "LLM",
     "PyTorch",
+    "NumPy",
+    "Pandas",
+    "Matplotlib",
+    "scikit-learn",
+    "Hugging Face",
     "CUDA",
     "TensorRT",
     "vLLM",
@@ -35,7 +41,11 @@ CANONICAL_SKILLS = [
     "OpenAI API",
     "FAISS",
     "Milvus",
+    "Vector DB",
     "Redis",
+    "SQL",
+    "Git",
+    "REST API",
     "FastAPI",
     "Docker",
     "Linux",
@@ -56,7 +66,10 @@ SKILL_ALIASES = {
     "工具调用": "Tool Calling",
     "函数调用": "Function Calling",
     "检索增强": "RAG",
+    "检索增强生成": "RAG",
+    "向量检索": "RAG",
     "向量数据库": "Vector DB",
+    "智能体": "Agent",
     "模型量化": "量化",
     "结构化剪枝": "剪枝",
 }
@@ -81,23 +94,51 @@ def normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
 
 
+def _contains_term(text: str, term: str) -> bool:
+    """Return whether *term* occurs as a standalone technical term.
+
+    ASCII skill names use token boundaries so short names such as ``RAG`` do
+    not accidentally match unrelated words such as ``storage``. Chinese terms
+    keep substring matching because they are not whitespace-delimited.
+    """
+
+    if not text or not term:
+        return False
+
+    if re.fullmatch(r"[A-Za-z0-9+_. /-]+", term):
+        pattern = rf"(?<![A-Za-z0-9]){re.escape(term)}(?![A-Za-z0-9])"
+        return re.search(pattern, text, flags=re.IGNORECASE) is not None
+
+    return term in text
+
+
 def extract_skills(text: str) -> List[str]:
-    """Simple keyword-based skill extractor for offline mode."""
+    """Extract normalized skills for deterministic scoring and fallback."""
 
     text_norm = normalize_text(text)
-    lower = text_norm.lower()
     found = []
 
     for skill in CANONICAL_SKILLS:
-        if skill.lower() in lower or skill in text_norm:
+        if _contains_term(text_norm, skill):
             found.append(skill)
 
     for alias, canonical in SKILL_ALIASES.items():
-        if alias.lower() in lower or alias in text_norm:
+        if _contains_term(text_norm, alias):
             found.append(canonical)
 
     # Preserve order while deduplicating.
     return list(dict.fromkeys(found))
+
+
+def canonicalize_skill_items(items: Iterable[str]) -> List[str]:
+    """Convert free-form LLM skill strings to the deterministic vocabulary."""
+
+    normalized: List[str] = []
+    for item in items or []:
+        if not isinstance(item, str):
+            continue
+        normalized.extend(extract_skills(item))
+    return list(dict.fromkeys(normalized))
 
 
 def extract_project_lines(text: str) -> List[str]:
@@ -120,6 +161,12 @@ def top_keywords(text: str, n: int = 12) -> List[str]:
 
 
 def compute_match(resume_skills: Iterable[str], jd_skills: Iterable[str]) -> Tuple[float, List[str], List[str]]:
+    """Compute exact normalized skill coverage.
+
+    The score intentionally remains a transparent coverage ratio instead of
+    an LLM-generated probability: matched JD skills / recognized JD skills.
+    """
+
     resume_set = {s.lower(): s for s in resume_skills}
     jd_unique = list(dict.fromkeys(jd_skills))
     matched = []
@@ -133,6 +180,16 @@ def compute_match(resume_skills: Iterable[str], jd_skills: Iterable[str]) -> Tup
         return 0.0, matched, missing
     score = round(len(matched) / len(jd_unique) * 100, 1)
     return score, matched, missing
+
+
+def classify_match_level(score: float) -> str:
+    """Map a coverage score to a human-readable evaluation band."""
+
+    if score >= 80:
+        return "高匹配"
+    if score >= 50:
+        return "中匹配"
+    return "低匹配"
 
 
 def recommend_project_features(missing_skills: List[str], matched_skills: List[str]) -> List[str]:

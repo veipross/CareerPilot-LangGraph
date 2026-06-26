@@ -128,11 +128,28 @@
 
             {% if match_score is not none %}
             <div class="score-card">
-                <span>匹配度</span>
+                <span>{{ match_level or "匹配度" }}</span>
                 <strong>{{ "%.1f"|format(match_score) }}</strong>
             </div>
             {% endif %}
         </div>
+
+        {% if match_breakdown %}
+        <div class="score-breakdown">
+            <div>
+                <span>命中技能</span>
+                <strong>{{ match_breakdown.get("matched_count", 0) }} / {{ match_breakdown.get("required_count", 0) }}</strong>
+            </div>
+            <div>
+                <span>简历技能数</span>
+                <strong>{{ match_breakdown.get("resume_skill_count", 0) }}</strong>
+            </div>
+            <div class="formula-item">
+                <span>评分公式</span>
+                <strong>{{ match_breakdown.get("score_formula", "暂无") }}</strong>
+            </div>
+        </div>
+        {% endif %}
 
         {% if error %}
         <div class="error-box">

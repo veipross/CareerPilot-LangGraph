@@ -8,6 +8,8 @@ from langgraph.graph import END, START, StateGraph
 from .llm import invoke_json
 from .schemas import CareerState, InterviewPlan, JDProfile, MatchReport, OpenSourceRecommendation, ProjectPlan, RAGContext, ResumeProfile, ResumeRewrite
 from .tools import (
+    canonicalize_skill_items,
+    classify_match_level,
     compute_match,
     extract_project_lines,
     extract_skills,
@@ -77,54 +79,24 @@ JD：
 
 
 def match_node(state: CareerState) -> Dict[str, Any]:
-    """Compute a robust deterministic match score.
+    """Compute a stable and explainable deterministic match score.
 
-    LLM-extracted skills can contain long natural-language descriptions.
-    To keep matching stable, combine them with canonical skills extracted
-    directly from the original resume and JD texts.
+    LLM outputs are useful for narrative analysis, but free-form requirement
+    sentences must not enter the score denominator. Both online and offline
+    modes therefore map skill evidence to the same canonical vocabulary before
+    calculating coverage.
     """
 
     profile = state.get("profile", {})
     jd = state.get("jd_profile", {})
-
     resume_text = state.get("resume_text", "")
     jd_text = state.get("jd_text", "")
 
-    def compact_skill_items(items):
-        """Keep short skill-like strings and discard requirement sentences."""
-        result = []
-
-        for item in items or []:
-            if not isinstance(item, str):
-                continue
-
-            skill = item.strip()
-
-            if not skill:
-                continue
-
-            # Long strings containing sentence punctuation are usually
-            # requirement descriptions rather than canonical skill names.
-            if len(skill) > 40:
-                continue
-
-            if any(mark in skill for mark in ("。", "；", "：", "\n")):
-                continue
-
-            result.append(skill)
-
-        return result
-
-    # Canonical rule-based extraction provides stable names such as
-    # Python, PyTorch, LangGraph, RAG and FastAPI.
     offline_resume_skills = extract_skills(resume_text)
     offline_jd_skills = extract_skills(jd_text)
 
-    llm_resume_skills = compact_skill_items(
-        profile.get("skills", [])
-    )
-
-    llm_jd_skills = compact_skill_items(
+    llm_resume_skills = canonicalize_skill_items(profile.get("skills", []))
+    llm_jd_skills = canonicalize_skill_items(
         [
             *jd.get("core_requirements", []),
             *jd.get("tools", []),
@@ -133,68 +105,62 @@ def match_node(state: CareerState) -> Dict[str, Any]:
     )
 
     resume_skills = list(
-        dict.fromkeys(
-            [
-                *offline_resume_skills,
-                *llm_resume_skills,
-            ]
-        )
+        dict.fromkeys([*offline_resume_skills, *llm_resume_skills])
     )
-
     jd_skills = list(
-        dict.fromkeys(
-            [
-                *offline_jd_skills,
-                *llm_jd_skills,
-            ]
-        )
+        dict.fromkeys([*offline_jd_skills, *llm_jd_skills])
     )
 
-    score, matched, missing = compute_match(
-        resume_skills,
-        jd_skills,
-    )
+    score, matched, missing = compute_match(resume_skills, jd_skills)
+    matched_count = len(matched)
+    required_count = len(jd_skills)
+    level = classify_match_level(score)
+
+    if required_count:
+        formula = f"{matched_count} / {required_count} × 100 = {score:.1f}"
+    else:
+        formula = "JD 中未识别到可评分的标准化技能"
+
+    score_explanation = [
+        f"JD 中识别出 {required_count} 个标准化技能，简历命中 {matched_count} 个。",
+        f"计算公式：{formula}。" if required_count else formula,
+        "总分表示技术技能覆盖率，不等同于录用概率，也不会为了展示效果人为调高。",
+        "在线与离线模式使用同一套确定性评分词表，避免模型措辞变化造成分数漂移。",
+    ]
 
     risk_points = []
-
+    if not jd_skills:
+        risk_points.append("JD 中没有识别到可评分技能，建议补充更完整的技术要求。")
     if "LangGraph" in missing:
-        risk_points.append(
-            "简历中还缺少 LangGraph 明确项目经历。"
-        )
-
+        risk_points.append("简历中还缺少 LangGraph 明确项目经历。")
     if "RAG" in missing:
-        risk_points.append(
-            "简历中 RAG/向量检索信号较弱。"
-        )
+        risk_points.append("简历中 RAG/向量检索信号较弱。")
+    if "Tool Calling" in missing and "Function Calling" in missing:
+        risk_points.append("Agent 工具调用、函数调用经历需要补强。")
 
-    if (
-        "Tool Calling" in missing
-        and "Function Calling" in missing
-    ):
-        risk_points.append(
-            "Agent 工具调用、函数调用经历需要补强。"
-        )
-
-    positioning = (
-        "适合定位为：有 CV/推理优化背景的"
-        "大模型应用/Agent 工程候选人。"
-        if score >= 45
-        else
-        "当前匹配度一般，需要继续补强可演示的 "
-        "Agent、RAG 和开源贡献经历。"
-    )
+    if level == "高匹配":
+        positioning = "岗位技能覆盖较完整，建议重点强化项目成果、量化指标和工程深度。"
+    elif level == "中匹配":
+        positioning = "具备部分核心能力，建议围绕缺口技能补充可运行项目与证据。"
+    else:
+        positioning = "当前岗位技能覆盖偏低，需要优先补齐核心技术栈和相关项目经历。"
 
     report = MatchReport(
         score=score,
+        level=level,
+        scoring_method="canonical_skill_coverage",
+        score_formula=formula,
+        matched_count=matched_count,
+        required_count=required_count,
+        resume_skill_count=len(resume_skills),
         matched_skills=matched,
         missing_skills=missing,
+        score_explanation=score_explanation,
         risk_points=risk_points,
         positioning=positioning,
     )
 
-    return {
-        "match_report": report.model_dump()
-    }
+    return {"match_report": report.model_dump()}
 
 def rag_retriever_node(state: CareerState) -> Dict[str, Any]:
     """Retrieve local knowledge snippets based on JD and missing skills."""
@@ -368,6 +334,17 @@ def final_report_node(state: CareerState) -> Dict[str, Any]:
 
         return "\n\n".join(blocks)
 
+    def score_details(match_report):
+        explanation = match_report.get("score_explanation", [])
+        lines = [
+            f"- 匹配等级：{match_report.get('level', '未评估')}",
+            f"- 评分方法：标准化技能覆盖率（canonical skill coverage）",
+            f"- 命中技能：{match_report.get('matched_count', 0)} / {match_report.get('required_count', 0)}",
+            f"- 计算公式：{match_report.get('score_formula', '') or '暂无'}",
+        ]
+        lines.extend(f"- {item}" for item in explanation[2:])
+        return "\n".join(lines)
+
     def rag_cards(items):
         if not items:
             return "- 暂无"
@@ -396,16 +373,19 @@ def final_report_node(state: CareerState) -> Dict[str, Any]:
 - 候选人定位：{match.get('positioning', '')}
 - 匹配分：**{match.get('score', 0)} / 100**
 
-## 2. 已匹配技能
+## 2. 评分解释
+{score_details(match)}
+
+## 3. 已匹配技能
 {bullets(match.get('matched_skills', []))}
 
-## 3. 需要补强的技能/信号
+## 4. 需要补强的技能/信号
 {bullets(match.get('missing_skills', []))}
 
-## 4. 风险点
+## 5. 风险点
 {bullets(match.get('risk_points', []))}
 
-## 5. 推荐 GitHub 项目路线
+## 6. 推荐 GitHub 项目路线
 仓库名：**{project.get('repo_name', 'CareerPilot-LangGraph')}**
 
 ### 核心功能
@@ -423,14 +403,14 @@ def final_report_node(state: CareerState) -> Dict[str, Any]:
 ### RAG 知识库检索结果
 {rag_cards(rag_context)}
 
-## 6. 可写入简历的项目描述
+## 7. 可写入简历的项目描述
 {rewrite.get('summary', '')}
 
 {bullets(rewrite.get('rewritten_project_bullets', []))}
 
 关键词：{', '.join(rewrite.get('keywords_to_add', []))}
 
-## 7. 面试准备
+## 8. 面试准备
 ### 高频问题
 {bullets(interview.get('questions', []))}
 
@@ -441,7 +421,7 @@ def final_report_node(state: CareerState) -> Dict[str, Any]:
 {bullets(interview.get('study_plan', []))}
 """
     if errors:
-        report += "\n## 8. 运行提示\n" + bullets(errors) + "\n"
+        report += "\n## 9. 运行提示\n" + bullets(errors) + "\n"
     return {"final_report": report}
 
 

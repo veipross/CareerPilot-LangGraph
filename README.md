@@ -7,7 +7,7 @@
 ## 1. 项目亮点
 
 - **LangGraph 状态图编排**：`ProfileExtractor → JDAnalyzer → Matcher → RAGRetriever → ProjectPlanner → GitHubRecommender → ResumeRewriter → InterviewPlanner → FinalReport`
-- **Qwen / DashScope 接入**：通过 OpenAI-compatible endpoint 调用 Qwen，也支持无 API Key 的 offline demo
+- **DeepSeek / Qwen 接入**：通过 OpenAI-compatible endpoint 调用在线模型，也支持无需 API Key 的 offline demo
 - **结构化输出**：使用 Pydantic schema 约束候选人画像、JD 画像、匹配报告、项目规划、简历改写
 - **工程鲁棒性**：LLM JSON 解析失败时自动降级到确定性关键词工具
 - **秋招友好**：最终输出 Markdown 报告，可直接转成 README、博客或简历项目描述
@@ -145,3 +145,25 @@ pytest -q
 
 - 不要把真实 API Key、电话号码、邮箱、身份证等个人信息提交到 GitHub。
 - 建议把真实简历放在本地路径运行，仓库中只保留脱敏样例。
+
+## 10. 可解释评分与高/中/低案例验证
+
+匹配总分采用确定性的“标准化技能覆盖率”：
+
+```text
+匹配分 = 简历命中的 JD 标准化技能数 / JD 可识别标准化技能总数 × 100
+```
+
+该分数只用于说明技术技能覆盖情况，不代表录用概率。在线和离线模式使用同一套评分词表，避免因为 LLM 措辞变化导致分数漂移。
+
+运行三档固定案例：
+
+```bash
+python scripts/evaluate_matching.py
+```
+
+预期满足：`高匹配 > 中匹配 > 低匹配`。完整自动化测试：
+
+```bash
+pytest -q
+```

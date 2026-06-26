@@ -42,8 +42,15 @@ class JDProfile(BaseModel):
 
 class MatchReport(BaseModel):
     score: float = 0.0
+    level: str = "未评估"
+    scoring_method: str = "canonical_skill_coverage"
+    score_formula: str = ""
+    matched_count: int = 0
+    required_count: int = 0
+    resume_skill_count: int = 0
     matched_skills: List[str] = Field(default_factory=list)
     missing_skills: List[str] = Field(default_factory=list)
+    score_explanation: List[str] = Field(default_factory=list)
     risk_points: List[str] = Field(default_factory=list)
     positioning: str = ""
 

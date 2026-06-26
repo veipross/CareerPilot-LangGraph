@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -82,6 +82,8 @@ class CareerResponse(BaseModel):
 
     final_report: str
     match_score: Optional[float] = None
+    match_level: Optional[str] = None
+    match_breakdown: dict = Field(default_factory=dict)
     provider: str
     offline: bool
 
@@ -111,6 +113,14 @@ def _run_analysis(
     return CareerResponse(
         final_report=result.get("final_report", ""),
         match_score=match_report.get("score"),
+        match_level=match_report.get("level"),
+        match_breakdown={
+            "matched_count": match_report.get("matched_count", 0),
+            "required_count": match_report.get("required_count", 0),
+            "resume_skill_count": match_report.get("resume_skill_count", 0),
+            "score_formula": match_report.get("score_formula", ""),
+            "scoring_method": match_report.get("scoring_method", ""),
+        },
         provider="offline" if offline else provider,
         offline=offline,
     )
@@ -126,6 +136,8 @@ def _build_template_context(
     model: str = "",
     report: str = "",
     match_score: float | None = None,
+    match_level: str = "",
+    match_breakdown: dict | None = None,
     error: str = "",
 ) -> dict:
     """Build the shared context passed to the Jinja2 page template."""
@@ -139,6 +151,8 @@ def _build_template_context(
         "model": model,
         "report": report,
         "match_score": match_score,
+        "match_level": match_level,
+        "match_breakdown": match_breakdown or {},
         "error": error,
     }
 
@@ -182,6 +196,19 @@ def analyze(req: CareerRequest) -> CareerResponse:
             status_code=500,
             detail=f"CareerPilot analysis failed: {exc}",
         ) from exc
+
+
+@app.get(
+    "/web/analyze",
+    include_in_schema=False,
+)
+def web_analyze_get() -> RedirectResponse:
+    """Redirect browser refreshes back to the CareerPilot homepage."""
+
+    return RedirectResponse(
+        url="/",
+        status_code=303,
+    )
 
 
 @app.post(
@@ -252,6 +279,8 @@ def web_analyze(
 
         context["report"] = response.final_report
         context["match_score"] = response.match_score
+        context["match_level"] = response.match_level or ""
+        context["match_breakdown"] = response.match_breakdown
 
     except Exception as exc:
         context["error"] = str(exc)

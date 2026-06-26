@@ -329,6 +329,39 @@ textarea:focus {
     font-size: 22px;
 }
 
+.score-breakdown {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.score-breakdown > div {
+    padding: 12px 14px;
+    border: 1px solid #e0e6ef;
+    border-radius: 12px;
+    background: #f8fafc;
+}
+
+.score-breakdown span {
+    display: block;
+    margin-bottom: 5px;
+    color: #778399;
+    font-size: 11px;
+}
+
+.score-breakdown strong {
+    color: #26324a;
+    font-size: 14px;
+    word-break: break-word;
+}
+
+@media (max-width: 760px) {
+    .score-breakdown {
+        grid-template-columns: 1fr;
+    }
+}
+
 .report-actions {
     display: flex;
     align-items: center;
