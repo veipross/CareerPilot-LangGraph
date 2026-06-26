@@ -1,10 +1,234 @@
 <!DOCTYPE html>
-<html lang="en">
+
+<html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <title>$Title$</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CareerPilot-LangGraph</title>
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', path='/style.css') }}"
+    >
 </head>
+
 <body>
-$END$
+<div class="page-shell">
+
+<header class="hero">
+    <div>
+        <p class="eyebrow">LANGGRAPH CAREER AGENT</p>
+        <h1>CareerPilot</h1>
+        <p class="subtitle">
+            基于 LangGraph、DeepSeek 与 RAG 的简历 / JD 智能匹配系统
+        </p>
+    </div>
+
+    <div class="status-badge">
+        <span class="status-dot"></span>
+        Service Ready
+    </div>
+</header>
+
+<main class="main-grid">
+
+    <section class="panel input-panel">
+        <div class="panel-header">
+            <div>
+                <p class="section-index">01 / INPUT</p>
+                <h2>候选人信息</h2>
+            </div>
+        </div>
+
+        <form action="/web/analyze" method="post">
+
+            <label for="target_role">目标岗位</label>
+            <input
+                id="target_role"
+                name="target_role"
+                type="text"
+                value="{{ target_role }}"
+                placeholder="例如：大模型 / Agent 工程实习生"
+                required
+            >
+
+            <div class="form-row">
+                <div class="form-column">
+                    <label for="provider">模型服务</label>
+                    <select id="provider" name="provider">
+                        <option
+                            value="deepseek"
+                            {% if provider == "deepseek" %}selected{% endif %}
+                        >
+                            DeepSeek
+                        </option>
+
+                        <option
+                            value="qwen"
+                            {% if provider == "qwen" %}selected{% endif %}
+                        >
+                            Qwen / DashScope
+                        </option>
+                    </select>
+                </div>
+
+                <div class="form-column">
+                    <label for="model">模型名称（可选）</label>
+                    <input
+                        id="model"
+                        name="model"
+                        type="text"
+                        value="{{ model or '' }}"
+                        placeholder="使用 .env 默认模型"
+                    >
+                </div>
+            </div>
+
+            <label class="checkbox-row">
+                <input
+                    type="checkbox"
+                    name="offline"
+                    {% if offline %}checked{% endif %}
+                >
+                <span>
+                    <strong>使用 Offline 模式</strong>
+                    <small>不调用 DeepSeek 或其他外部大模型 API</small>
+                </span>
+            </label>
+
+            <label for="resume_text">简历内容</label>
+            <textarea
+                id="resume_text"
+                name="resume_text"
+                placeholder="请在这里粘贴候选人的简历文本……"
+                required
+            >{{ resume_text }}</textarea>
+
+            <label for="jd_text">岗位 JD</label>
+            <textarea
+                id="jd_text"
+                name="jd_text"
+                placeholder="请在这里粘贴目标岗位的职位描述……"
+                required
+            >{{ jd_text }}</textarea>
+
+            <button class="primary-button" type="submit">
+                运行 CareerPilot Agent
+            </button>
+
+        </form>
+    </section>
+
+    <section class="panel output-panel">
+
+        <div class="panel-header">
+            <div>
+                <p class="section-index">02 / REPORT</p>
+                <h2>分析报告</h2>
+            </div>
+
+            {% if match_score is not none %}
+            <div class="score-card">
+                <span>匹配度</span>
+                <strong>{{ "%.1f"|format(match_score) }}</strong>
+            </div>
+            {% endif %}
+        </div>
+
+        {% if error %}
+        <div class="error-box">
+            <strong>运行失败</strong>
+            <p>{{ error }}</p>
+        </div>
+        {% endif %}
+
+        {% if report %}
+
+        <div class="report-actions">
+            <span class="pipeline-label">
+                {% if offline %}
+                    Offline deterministic pipeline
+                {% else %}
+                    {{ provider }} online pipeline
+                {% endif %}
+            </span>
+
+            <button
+                class="secondary-button"
+                type="button"
+                onclick="copyReport()"
+            >
+                复制报告
+            </button>
+
+            <button
+                class="secondary-button"
+                type="button"
+                onclick="downloadReport()"
+            >
+                下载 Markdown
+            </button>
+        </div>
+
+        <pre id="report-content" class="report-content">{{ report }}</pre>
+
+        {% else %}
+
+        <div class="empty-state">
+            <div class="empty-icon">CP</div>
+            <h3>等待生成报告</h3>
+            <p>
+                输入简历与岗位 JD 后，CareerPilot 将执行简历解析、
+                JD 分析、技能匹配、RAG 检索、项目规划、
+                简历改写和面试准备等 LangGraph 节点。
+            </p>
+        </div>
+
+        {% endif %}
+
+    </section>
+
+</main>
+
+</div>
+
+<script>
+function copyReport() {
+    const report = document.getElementById("report-content");
+
+    if (!report) {
+        return;
+    }
+
+    navigator.clipboard.writeText(report.textContent)
+        .then(() => alert("报告已经复制到剪贴板。"))
+        .catch(() => alert("复制失败，请手动复制报告内容。"));
+}
+
+function downloadReport() {
+    const report = document.getElementById("report-content");
+
+    if (!report) {
+        return;
+    }
+
+    const blob = new Blob(
+        [report.textContent],
+        {type: "text/markdown;charset=utf-8"}
+    );
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "careerpilot_report.md";
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    URL.revokeObjectURL(url);
+}
+</script>
+
 </body>
 </html>

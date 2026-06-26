@@ -77,24 +77,111 @@ JD：
 
 
 def match_node(state: CareerState) -> Dict[str, Any]:
+    """Compute a robust deterministic match score.
+
+    LLM-extracted skills can contain long natural-language descriptions.
+    To keep matching stable, combine them with canonical skills extracted
+    directly from the original resume and JD texts.
+    """
+
     profile = state.get("profile", {})
     jd = state.get("jd_profile", {})
-    resume_skills = profile.get("skills", [])
-    jd_skills = list(dict.fromkeys([*jd.get("core_requirements", []), *jd.get("tools", [])]))
-    score, matched, missing = compute_match(resume_skills, jd_skills)
+
+    resume_text = state.get("resume_text", "")
+    jd_text = state.get("jd_text", "")
+
+    def compact_skill_items(items):
+        """Keep short skill-like strings and discard requirement sentences."""
+        result = []
+
+        for item in items or []:
+            if not isinstance(item, str):
+                continue
+
+            skill = item.strip()
+
+            if not skill:
+                continue
+
+            # Long strings containing sentence punctuation are usually
+            # requirement descriptions rather than canonical skill names.
+            if len(skill) > 40:
+                continue
+
+            if any(mark in skill for mark in ("。", "；", "：", "\n")):
+                continue
+
+            result.append(skill)
+
+        return result
+
+    # Canonical rule-based extraction provides stable names such as
+    # Python, PyTorch, LangGraph, RAG and FastAPI.
+    offline_resume_skills = extract_skills(resume_text)
+    offline_jd_skills = extract_skills(jd_text)
+
+    llm_resume_skills = compact_skill_items(
+        profile.get("skills", [])
+    )
+
+    llm_jd_skills = compact_skill_items(
+        [
+            *jd.get("core_requirements", []),
+            *jd.get("tools", []),
+            *jd.get("keywords", []),
+        ]
+    )
+
+    resume_skills = list(
+        dict.fromkeys(
+            [
+                *offline_resume_skills,
+                *llm_resume_skills,
+            ]
+        )
+    )
+
+    jd_skills = list(
+        dict.fromkeys(
+            [
+                *offline_jd_skills,
+                *llm_jd_skills,
+            ]
+        )
+    )
+
+    score, matched, missing = compute_match(
+        resume_skills,
+        jd_skills,
+    )
 
     risk_points = []
+
     if "LangGraph" in missing:
-        risk_points.append("简历中还缺少 LangGraph 明确项目经历。")
+        risk_points.append(
+            "简历中还缺少 LangGraph 明确项目经历。"
+        )
+
     if "RAG" in missing:
-        risk_points.append("简历中 RAG/向量检索信号较弱。")
-    if "Tool Calling" in missing and "Function Calling" in missing:
-        risk_points.append("Agent 工具调用、函数调用经历需要补强。")
+        risk_points.append(
+            "简历中 RAG/向量检索信号较弱。"
+        )
+
+    if (
+        "Tool Calling" in missing
+        and "Function Calling" in missing
+    ):
+        risk_points.append(
+            "Agent 工具调用、函数调用经历需要补强。"
+        )
 
     positioning = (
-        "适合定位为：有 CV/推理优化背景的大模型应用/Agent 工程候选人。"
+        "适合定位为：有 CV/推理优化背景的"
+        "大模型应用/Agent 工程候选人。"
         if score >= 45
-        else "当前匹配度一般，需要尽快补一个可演示 Agent 项目和开源贡献。"
+        else
+        "当前匹配度一般，需要继续补强可演示的 "
+        "Agent、RAG 和开源贡献经历。"
     )
 
     report = MatchReport(
@@ -104,9 +191,10 @@ def match_node(state: CareerState) -> Dict[str, Any]:
         risk_points=risk_points,
         positioning=positioning,
     )
-    return {"match_report": report.model_dump()}
 
-
+    return {
+        "match_report": report.model_dump()
+    }
 
 def rag_retriever_node(state: CareerState) -> Dict[str, Any]:
     """Retrieve local knowledge snippets based on JD and missing skills."""
