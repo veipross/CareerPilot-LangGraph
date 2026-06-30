@@ -1,51 +1,192 @@
 # CareerPilot-LangGraph
 
-面向秋招的大模型 Agent 项目：输入简历和岗位 JD，使用 LangGraph 编排多个节点，自动生成岗位匹配、技能差距、GitHub 项目路线、简历改写和面试准备报告。
+<p align="center">
+  面向大模型 / Agent 岗位的智能求职分析系统<br/>
+  Resume & JD Matching · LangGraph Workflow · Hybrid RAG · FastAPI · Docker
+</p>
 
-> 这个仓库适合用于大模型应用 / Agent 工程 / 算法实习岗位展示。它不是普通聊天机器人，而是一个有状态、多节点、可降级、可扩展工具调用的 Agent Workflow。
+<p align="center">
+  <a href="https://github.com/veipross/CareerPilot-LangGraph/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/veipross/CareerPilot-LangGraph/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.9%2B-3776AB">
+  <img alt="LangGraph" src="https://img.shields.io/badge/LangGraph-Workflow-1C3C3C">
+  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-Web%20API-009688">
+  <img alt="RAG" src="https://img.shields.io/badge/RAG-BGE%20%2B%20FAISS-5B5BD6">
+</p>
 
-## 1. 项目亮点
+CareerPilot 输入候选人简历和岗位 JD，通过 LangGraph 编排 9 个节点，输出岗位匹配、技能差距、项目路线、GitHub 学习建议、简历改写和面试准备报告。系统支持 DeepSeek / Qwen 在线模型、完全离线降级、PDF 简历上传、可解释评分、Hybrid RAG、执行轨迹追踪、Docker 部署与自动化测试。
 
-- **LangGraph 状态图编排**：`ProfileExtractor → JDAnalyzer → Matcher → RAGRetriever → ProjectPlanner → GitHubRecommender → ResumeRewriter → InterviewPlanner → FinalReport`
-- **DeepSeek / Qwen 接入**：通过 OpenAI-compatible endpoint 调用在线模型，也支持无需 API Key 的 offline demo
-- **结构化输出**：使用 Pydantic schema 约束候选人画像、JD 画像、匹配报告、项目规划、简历改写
-- **工程鲁棒性**：LLM JSON 解析失败时自动降级到确定性关键词工具
-- **秋招友好**：最终输出 Markdown 报告，可直接转成 README、博客或简历项目描述
+> 该项目用于求职准备与工程演示。匹配分仅表示当前技能词表下的技术覆盖情况，不代表录用概率，也不替代人工招聘判断。
 
-## 2. 架构图
+## 核心成果
+
+- 使用 `StateGraph` 构建 9 节点求职 Agent 工作流，保留完整中间状态和节点级执行轨迹。
+- 使用 `BAAI/bge-small-zh-v1.5 + FAISS` 实现本地向量索引，并提供 `keyword / vector / hybrid` 三种检索模式。
+- Hybrid RAG 相比关键词检索，将 **Hit@1 从 50.0% 提升至 87.5%**，**Hit@3 从 50.0% 提升至 100%**，**MRR 从 0.500 提升至 0.938**。
+- 支持 DeepSeek / Qwen OpenAI-compatible API；外部模型失败或启用 Offline 模式时，自动回退到确定性规则链路。
+- 支持 PDF、TXT、Markdown 简历上传，提供大小、页数、文件类型和文本可提取性校验。
+- 提供 FastAPI Web Demo、JSON API、CLI、Docker Compose、GitHub Actions CI 和 40 项自动化测试。
+
+## Web Demo
+
+下面的 RAG 面板会展示检索模式、Embedding 模型、索引状态、来源文件、Chunk 编号、综合相关度、向量相似度和关键词相关度。
+
+<p align="center">
+  <img src="docs/images/rag-hybrid-retrieval.png" alt="CareerPilot Hybrid RAG retrieval panel" width="780">
+</p>
+
+## 系统架构
 
 ```mermaid
 flowchart LR
-    A[Resume / JD Input] --> B[ProfileExtractor]
-    B --> C[JDAnalyzer]
-    C --> D[Matcher]
-    D --> E[RAGRetriever]
-    E --> F[ProjectPlanner]
-    F --> G[GitHubRecommender]
-    G --> H[ResumeRewriter]
-    H --> I[InterviewPlanner]
-    I --> J[Markdown Report]
+    U[Resume / JD] --> P[Profile Extractor]
+    P --> J[JD Analyzer]
+    J --> M[Matcher]
+    M --> R[RAG Retriever]
+    R --> PP[Project Planner]
+    PP --> G[GitHub Recommender]
+    G --> RW[Resume Rewriter]
+    RW --> I[Interview Planner]
+    I --> F[Final Report]
 
-    B -. optional .-> Q[Qwen / DashScope]
-    C -. optional .-> Q
-    F -. optional .-> Q
-    H -. optional .-> Q
+    LLM[DeepSeek / Qwen] -. online enhancement .-> P
+    LLM -. online enhancement .-> J
+    LLM -. online enhancement .-> PP
+    LLM -. online enhancement .-> RW
+
+    KB[Local Knowledge Base] --> C[Chunking]
+    C --> E[BGE Embedding]
+    E --> V[FAISS Index]
+    V --> R
+    K[Keyword Retrieval] --> R
+
+    R --> O[Source / Chunk / Scores]
+    F --> W[Web / API / CLI]
 ```
 
-## 3. 快速开始
+### LangGraph 节点
 
-### 3.1 安装
+| 节点 | 主要输入 | 主要输出 | 作用 |
+|---|---|---|---|
+| `extract_profile` | 简历文本 | `profile` | 提取教育、技能、项目、优势与缺失信号 |
+| `analyze_jd` | JD 文本 | `jd_profile` | 提取岗位职责、核心要求、工具与关键词 |
+| `match` | 候选人画像 + JD 画像 | `match_report` | 计算标准化技能覆盖率和风险点 |
+| `rag_retriever` | 岗位需求 + 技能缺口 | `rag_context` | 检索本地 LangGraph、RAG、Agent 与开源知识 |
+| `project_planner` | 匹配结果 + RAG 上下文 | `project_plan` | 生成可执行项目路线与里程碑 |
+| `github_recommender` | 技能缺口 | `github_recommendations` | 推荐学习仓库与开源贡献切入点 |
+| `resume_rewriter` | 项目路线 + 岗位画像 | `resume_rewrite` | 生成可写入简历的项目描述 |
+| `interview_planner` | 完整状态 | `interview_plan` | 生成问题、讲解要点与学习计划 |
+| `final_report` | 完整状态 | `final_report` | 汇总为 Markdown 求职匹配报告 |
+
+## Hybrid RAG
+
+知识库位于 `data/knowledge/`。系统先进行文本切块，再使用 BGE 生成归一化向量并建立 FAISS `IndexFlatIP` 索引。索引与元数据会持久化到 `data/vector_store/`，知识库、模型或切块参数变化时自动重建。
+
+Hybrid 模式综合向量语义分与关键词精确分：
+
+```text
+hybrid_score = vector_score × 0.75 + keyword_score × 0.25
+```
+
+支持的模式：
+
+| 模式 | 说明 |
+|---|---|
+| `keyword` | 关键词重叠检索，速度快，适合精确技术词 |
+| `vector` | BGE + FAISS 语义检索，适合改写和近义表达 |
+| `hybrid` | 结合语义召回与精确词命中，项目默认推荐模式 |
+
+当 Sentence Transformers、FAISS、Embedding 模型或索引不可用时，系统会自动回退到关键词检索，并在结果中返回降级原因。
+
+## RAG 离线评估
+
+固定评估集包含 8 条查询，覆盖精确技术词和语义改写两类场景。以下是预热后的本地结果：
+
+| 模式 | Hit@1 | Hit@3 | MRR | 非空召回率 | 平均延迟 |
+|---|---:|---:|---:|---:|---:|
+| Keyword | 0.500 | 0.500 | 0.500 | 0.500 | 0.12 ms |
+| Vector | 0.875 | 1.000 | 0.938 | 1.000 | 3.68 ms |
+| Hybrid | 0.875 | 1.000 | 0.938 | 1.000 | 3.75 ms |
+
+语义改写子集上，关键词检索的 Hit@3 为 `0.000`，Vector 与 Hybrid 均达到 `1.000`。该结果说明向量检索能够召回未直接复用知识库关键词的语义表达。
+
+复现实验：
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
-
-# 安装完成后会注册 careerpilot 命令行入口
-careerpilot --help
+python scripts/evaluate_rag.py --repeat 3
 ```
 
-### 3.2 离线运行，无需 API Key
+报告输出到：
+
+```text
+outputs/rag_evaluation/rag_evaluation.json
+outputs/rag_evaluation/rag_evaluation.md
+```
+
+> 当前评估集用于项目回归和工程对比，不应视为大规模通用 RAG 基准。
+
+## 快速开始
+
+### 1. 环境安装
+
+```bash
+git clone https://github.com/veipross/CareerPilot-LangGraph.git
+cd CareerPilot-LangGraph
+
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+```
+
+项目要求 Python `3.9+`。首次启用向量 RAG 时会下载约 100 MB 的 BGE 模型。
+
+### 2. 配置环境变量
+
+```bash
+cp .env.example .env
+```
+
+`.env` 中可选择 DeepSeek 或 Qwen：
+
+```env
+CAREERPILOT_LLM_PROVIDER=deepseek
+DEEPSEEK_API_KEY=your_key_here
+CAREERPILOT_DEEPSEEK_BASE_URL=https://api.deepseek.com
+CAREERPILOT_DEEPSEEK_MODEL=deepseek-v4-flash
+
+CAREERPILOT_RAG_MODE=hybrid
+CAREERPILOT_RAG_EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
+CAREERPILOT_RAG_DEVICE=cpu
+```
+
+不要把 `.env` 或真实 API Key 提交到 Git。
+
+### 3. 启动 Web Demo
+
+```bash
+python -m uvicorn careerpilot.api:app \
+  --host 0.0.0.0 \
+  --port 8001 \
+  --env-file .env
+```
+
+浏览器访问：
+
+```text
+http://127.0.0.1:8001
+```
+
+Web 页面支持：
+
+- 粘贴简历文本或上传 PDF / TXT / Markdown；
+- 选择 DeepSeek、Qwen 或 Offline 模式；
+- 查看匹配分、技能差距、9 节点执行轨迹和最慢节点；
+- 查看 Hybrid RAG 来源、Chunk、相似度和索引状态；
+- 查看和复制完整 Markdown 报告。
+
+### 4. CLI 离线运行
+
+无需 API Key：
 
 ```bash
 careerpilot \
@@ -55,207 +196,122 @@ careerpilot \
   --offline
 ```
 
-### 3.3 接入 Qwen / DashScope
-
-复制环境变量模板：
-
-```bash
-cp .env.example .env
-```
-
-在 `.env` 中填写：
-
-```bash
-DASHSCOPE_API_KEY=sk-xxxx
-DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-CAREERPILOT_MODEL=qwen-plus
-```
-
-运行：
+在线运行：
 
 ```bash
 careerpilot \
   --resume examples/sample_resume_zh.txt \
   --jd examples/sample_jd_llm_agent.txt \
-  --out outputs/report.md
+  --out outputs/report.md \
+  --provider deepseek
 ```
 
-## 4. 目录结构
+`--resume` 和 `--jd` 均支持文本文件和可提取文字的 PDF。
 
-```text
-CareerPilot-LangGraph/
-├── careerpilot/
-│   ├── cli.py          # CLI 入口
-│   ├── config.py       # 环境变量配置
-│   ├── graph.py        # LangGraph 工作流核心
-│   ├── llm.py          # Qwen/DashScope LLM 工厂与 JSON 解析
-│   ├── schemas.py      # Pydantic + TypedDict schema
-│   └── tools.py        # 离线关键词抽取、匹配和项目推荐工具
-├── examples/
-│   ├── sample_resume_zh.txt
-│   └── sample_jd_llm_agent.txt
-├── tests/
-│   └── test_tools.py
-├── outputs/
-├── .env.example
-├── requirements.txt
-└── README.md
-```
+## API
 
-## 5. LangGraph 节点说明
-
-| Node | 输入 | 输出 | 作用 |
-|---|---|---|---|
-| `extract_profile` | resume_text | profile | 抽取教育、技能、项目、优势和缺失信号 |
-| `analyze_jd` | jd_text | jd_profile | 抽取岗位核心要求、加分项、工具和关键词 |
-| `match` | profile + jd_profile | match_report | 计算技能匹配度、风险点和候选人定位 |
-| `rag_retriever` | match_report + jd_profile | rag_context | 从本地知识库检索 LangGraph、RAG、Agent 和开源贡献相关内容 |
-| `project_planner` | match_report + rag_context | project_plan | 生成项目功能路线和阶段性里程碑 |
-| `github_recommender` | match_report | github_recommendations | 推荐适合学习和贡献的 GitHub 仓库及 PR 切入点 |
-| `resume_rewriter` | project_plan + github_recommendations | resume_rewrite | 生成适合写入简历的项目描述 |
-| `interview_planner` | full state | interview_plan | 生成面试问题、讲解要点和学习计划 |
-| `final_report` | full state | final_report | 汇总 Markdown 报告 |
-
-## 6. 可写入简历的描述
-
-> 基于 LangGraph 设计并实现面向秋招场景的多节点 Agent 工作流，覆盖简历解析、JD 结构化分析、技能匹配、项目路线规划、简历改写与面试题生成；接入 Qwen/DashScope OpenAI-compatible API，并设计离线规则引擎作为降级路径，提升系统鲁棒性与可复现性。
-
-可选 bullet：
-
-- - 使用 `StateGraph` 构建 `ProfileExtractor → JDAnalyzer → Matcher → RAGRetriever → ProjectPlanner → GitHubRecommender → ResumeRewriter` 状态流，实现多阶段任务拆解、知识检索、开源推荐和节点状态传递。
-- 设计 Pydantic schema 约束 LLM 结构化输出，并实现 JSON 解析失败后的确定性工具降级，提高 Agent 工程稳定性。
-- 封装技能抽取、岗位匹配和项目推荐工具，输出匹配分、缺口技能、GitHub 项目路线和可写入简历的项目 bullet。
-- 预留 RAG、GitHub issue 检索、MCP 工具调用和 vLLM serving benchmark 扩展接口，支持后续开源贡献和性能评测。
-
-## 7. 后续迭代路线
-
-- **V1：RAG 扩展**：把 JD、面经、开源 issue、论文摘要接入向量库。
-- **V2：GitHub 工具调用**：自动搜索适合新手贡献的 issue，生成 PR 计划。
-- **V3：MCP Server**：暴露 resume_match、jd_analyze、github_issue_rank 三个工具。
-- **V4：Web Demo**：用 FastAPI + Streamlit/Gradio 做演示界面。
-- **V5：评测体系**：增加匹配准确率、人审通过率、LLM 调用 latency 和 token 成本统计。
-
-## 8. 运行测试
+### 健康检查
 
 ```bash
-pytest -q
+curl http://127.0.0.1:8001/health
 ```
 
-## 9. 安全注意
-
-- 不要把真实 API Key、电话号码、邮箱、身份证等个人信息提交到 GitHub。
-- 建议把真实简历放在本地路径运行，仓库中只保留脱敏样例。
-
-## 10. 可解释评分与高/中/低案例验证
-
-匹配总分采用确定性的“标准化技能覆盖率”：
-
-```text
-匹配分 = 简历命中的 JD 标准化技能数 / JD 可识别标准化技能总数 × 100
-```
-
-该分数只用于说明技术技能覆盖情况，不代表录用概率。在线和离线模式使用同一套评分词表，避免因为 LLM 措辞变化导致分数漂移。
-
-运行三档固定案例：
-
-```bash
-python scripts/evaluate_matching.py
-```
-
-预期满足：`高匹配 > 中匹配 > 低匹配`。完整自动化测试：
-
-```bash
-pytest -q
-```
-
-## 11. LangGraph 可观测性与 RAG 来源解释
-
-每次运行都会在最终状态中返回：
-
-- `execution_trace`：9 个 LangGraph 节点的执行顺序、状态、耗时、输出摘要和输出字段；
-- `pipeline_metrics`：完成节点数、累计节点耗时和最慢节点；
-- `rag_context`：RAG 召回排名、来源文件、Chunk 编号、命中词、召回依据和内容预览。
-
-Web 页面会把这些信息渲染成独立的“执行轨迹”和“RAG 检索来源”面板，便于演示 Agent 并非黑盒串联，也方便定位慢节点和检索质量问题。
-
-JSON API 的响应示例字段：
+返回：
 
 ```json
-{
-  "execution_trace": [
-    {
-      "index": 1,
-      "node": "extract_profile",
-      "label": "简历解析",
-      "status": "completed",
-      "duration_ms": 2.4,
-      "summary": "抽取 8 项技能、3 条项目经历"
-    }
-  ],
-  "pipeline_metrics": {
-    "node_count": 9,
-    "completed_count": 9,
-    "total_duration_ms": 18.6,
-    "slowest_node": "rag_retriever"
-  },
-  "rag_context": [
-    {
-      "rank": 1,
-      "source_name": "rag_notes.txt",
-      "chunk_index": 1,
-      "score": 65,
-      "matched_terms": ["RAG", "Agent"]
-    }
-  ]
-}
+{"status":"ok"}
 ```
 
-## PDF / 文本简历上传（Phase 3）
-
-Web 页面支持两种简历输入方式：
-
-1. 上传 PDF、TXT 或 Markdown 文件；
-2. 直接粘贴简历文本。
-
-当两种方式同时提供时，系统优先解析上传文件。文件只在内存中读取，不会保存到服务器磁盘。默认限制为 8 MB、PDF 最多 60 页。扫描件或纯图片 PDF 不能直接提取文字，系统会提示用户上传可复制文字的 PDF 或改用文本粘贴。
-
-也可以单独调用文件解析接口：
+### 简历文件解析
 
 ```bash
 curl -X POST "http://127.0.0.1:8001/resume/extract" \
   -F "resume_file=@resume.pdf"
 ```
 
-## Docker 与持续集成（Phase 4）
+### 求职分析
 
-### Docker 一键运行
+```bash
+curl -X POST "http://127.0.0.1:8001/analyze" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resume_text": "Python、FastAPI、LangGraph 项目经验……",
+    "jd_text": "负责大模型 Agent 应用开发……",
+    "target_role": "大模型/Agent 工程实习生",
+    "offline": true,
+    "provider": "deepseek"
+  }'
+```
 
-离线模式不需要 API Key，可以直接构建并启动：
+响应包含：
+
+```text
+final_report
+match_score / match_level / match_breakdown
+execution_trace / pipeline_metrics
+rag_context
+provider / offline
+```
+
+FastAPI 交互文档：
+
+```text
+http://127.0.0.1:8001/docs
+```
+
+## 可解释匹配评分
+
+匹配总分采用标准化技能覆盖率：
+
+```text
+match_score = matched_normalized_skills / identifiable_required_skills × 100
+```
+
+同义表达会先归一化，例如 `大语言模型 / LLM`、`Fast API / FastAPI`。在线和离线模式使用同一套确定性评分逻辑，避免 LLM 措辞变化导致分数漂移。
+
+运行高、中、低三档固定案例：
+
+```bash
+python scripts/evaluate_matching.py
+```
+
+## PDF 简历上传
+
+- 支持 PDF、TXT 和 Markdown；
+- 文件仅在内存中读取，不保存到服务器；
+- 默认最大 8 MB，PDF 最多 60 页；
+- 拒绝不支持的文件类型、空文件和异常 PDF；
+- 扫描件或纯图片 PDF 不能直接提取文本，需要先进行 OCR 或改用文本粘贴。
+
+## 可观测性
+
+每个 LangGraph 节点都会记录：
+
+```text
+执行顺序
+节点名称与中文标签
+完成状态
+节点耗时
+输出字段
+输出摘要
+```
+
+最终状态同时返回：
+
+- `execution_trace`：节点级执行记录；
+- `pipeline_metrics`：节点数量、累计耗时和最慢节点；
+- `rag_context`：召回排名、来源、Chunk、分数、模型、索引状态与降级原因。
+
+## Docker 部署
+
+### Docker
 
 ```bash
 docker build -t careerpilot-langgraph:local .
 docker run --rm -p 8001:8001 careerpilot-langgraph:local
 ```
 
-浏览器访问：
-
-```text
-http://127.0.0.1:8001/
-```
-
-健康检查：
-
-```bash
-curl http://127.0.0.1:8001/health
-```
-
-在线模式建议先准备本地 `.env`：
-
-```bash
-cp .env.example .env
-```
-
-填写 `DEEPSEEK_API_KEY` 或 `DASHSCOPE_API_KEY` 后运行：
+在线模式：
 
 ```bash
 docker run --rm \
@@ -264,11 +320,9 @@ docker run --rm \
   careerpilot-langgraph:local
 ```
 
-镜像使用非 root 用户运行，并通过 `/health` 执行容器健康检查。本地 `.env`、真实简历、PDF、压缩包和输出目录由 `.dockerignore` 排除，不会进入镜像构建上下文。
+镜像使用非 root 用户运行，并配置 `/health` 容器健康检查。
 
 ### Docker Compose
-
-Compose 会读取项目目录中的 `.env`，并把声明的模型配置传入容器：
 
 ```bash
 docker compose up --build -d
@@ -276,44 +330,81 @@ docker compose ps
 docker compose logs -f careerpilot
 ```
 
-停止并清理：
+停止：
 
 ```bash
 docker compose down
 ```
 
-修改外部访问端口：
+## 测试与 CI
+
+运行测试：
 
 ```bash
-CAREERPILOT_PORT=8080 docker compose up --build -d
-```
-
-此时访问 `http://127.0.0.1:8080/`。
-
-### GitHub Actions CI
-
-`.github/workflows/ci.yml` 会在 push、pull request 和手动触发时执行：
-
-1. Python 3.9 与 3.11 双版本测试；
-2. 源码编译检查；
-3. 完整 `pytest`；
-4. Docker 镜像构建；
-5. 启动容器并访问 `/health` 进行 smoke test。
-
-本地提交前可以运行同等的核心检查：
-
-```bash
-python -m compileall -q careerpilot tests
 pytest -q
-docker build -t careerpilot-langgraph:local .
 ```
 
-### Phase 4 文件
+当前测试覆盖：
+
+- 规则工具与技能归一化；
+- 高、中、低匹配评估；
+- LangGraph 服务和执行轨迹；
+- FastAPI JSON / Web 路由；
+- PDF 简历安全解析；
+- Keyword / Vector / Hybrid RAG；
+- Hit@K、MRR、延迟评估；
+- Docker 和部署配置。
+
+GitHub Actions 在 Python `3.9` 和 `3.11` 上运行源码编译与完整测试，并构建 Docker 镜像执行 `/health` smoke test。
+
+## 项目结构
 
 ```text
-Dockerfile                    # 非 root 生产镜像与健康检查
-.dockerignore                 # 排除密钥、缓存和私人文件
-docker-compose.yml            # 一键启动及环境变量注入
-.github/workflows/ci.yml       # Python 测试 + Docker smoke test
-tests/test_deployment.py       # 部署配置回归测试
+CareerPilot-LangGraph/
+├── careerpilot/
+│   ├── api.py                    # FastAPI、Web 表单和文件上传
+│   ├── cli.py                    # CLI 入口
+│   ├── config.py                 # LLM 与 RAG 配置
+│   ├── graph.py                  # 9 节点 LangGraph 工作流
+│   ├── llm.py                    # 结构化 LLM 调用与解析
+│   ├── llm_providers/            # DeepSeek / Qwen OpenAI-compatible 客户端
+│   ├── rag.py                    # BGE、FAISS、索引持久化与 Hybrid 检索
+│   ├── rag_evaluation.py         # Hit@K、MRR、延迟与报告生成
+│   ├── resume_parser.py          # PDF / TXT / Markdown 安全解析
+│   ├── schemas.py                # Pydantic 与 LangGraph State
+│   ├── service.py                # CLI / API 共用服务层
+│   ├── tools.py                  # 评分、关键词检索与确定性降级工具
+│   ├── templates/index.html      # Web 页面
+│   └── static/style.css          # 页面样式
+├── data/
+│   ├── knowledge/                # 本地 RAG 知识库
+│   └── evaluation/rag_queries.json
+├── examples/                     # 脱敏简历、JD 与示例报告
+├── scripts/
+│   ├── evaluate_matching.py
+│   └── evaluate_rag.py
+├── tests/                        # 40 项自动化测试
+├── Dockerfile
+├── docker-compose.yml
+└── .github/workflows/ci.yml
 ```
+
+## 技术栈
+
+`Python` · `LangGraph` · `Pydantic` · `FastAPI` · `Jinja2` · `DeepSeek` · `Qwen/DashScope` · `Sentence Transformers` · `BGE` · `FAISS` · `PyPDF` · `Docker` · `GitHub Actions` · `Pytest`
+
+## 安全与限制
+
+- 不要提交 `.env`、API Key、真实简历、电话号码、邮箱或身份证信息。
+- `data/vector_store/` 和运行输出应保持在 Git 忽略列表中。
+- 匹配分是技能覆盖指标，不代表候选人综合能力或招聘结论。
+- 当前知识库和评估集规模较小，重点展示可复现的 Agent / RAG 工程链路。
+- 扫描版 PDF 目前不内置 OCR。
+
+## 简历项目描述参考
+
+> 基于 LangGraph 构建多节点智能求职 Agent，完成简历解析、JD 结构化分析、技能匹配、项目规划、开源推荐、简历改写和面试题生成，并通过 FastAPI 提供 Web 与 JSON API。
+
+> 使用 BGE-small-zh-v1.5 与 FAISS 实现本地 Hybrid RAG，支持关键词、向量、混合检索及异常自动降级；在 8 条固定评估查询上，相比关键词检索将 Hit@1 从 50.0% 提升至 87.5%，Hit@3 从 50.0% 提升至 100%，MRR 从 0.500 提升至 0.938。
+
+> 完成 PDF 简历安全上传、DeepSeek / Qwen 在线与 Offline 双模式、节点耗时和 RAG 来源追踪、Docker 部署、GitHub Actions CI，并以 40 项自动化测试保障工作流稳定性。
