@@ -84,11 +84,17 @@ class RAGContext(BaseModel):
     source_name: str = ""
     rank: int = 0
     chunk_index: int = 0
-    score: int = 0
+    score: float = 0.0
     content: str
     preview: str = ""
     matched_terms: List[str] = Field(default_factory=list)
     retrieval_reason: str = ""
+    retrieval_mode: str = "keyword"
+    embedding_model: str = ""
+    vector_score: float = 0.0
+    keyword_score: float = 0.0
+    index_rebuilt: bool = False
+    fallback_reason: str = ""
 
 
 class OpenSourceRecommendation(BaseModel):

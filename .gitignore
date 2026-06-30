@@ -32,3 +32,6 @@ outputs/*
 .env
 .env.*
 !.env.example
+
+# Generated vector index
+data/vector_store/

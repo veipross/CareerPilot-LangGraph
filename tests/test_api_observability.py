@@ -34,7 +34,12 @@ def test_json_api_returns_trace_metrics_and_rag_sources():
     assert len(payload["execution_trace"]) == 9
     assert payload["pipeline_metrics"]["completed_count"] == 9
     assert payload["rag_context"]
-    assert payload["rag_context"][0]["source_name"]
+    first_rag_item = payload["rag_context"][0]
+    assert first_rag_item["source_name"]
+    assert "retrieval_mode" in first_rag_item
+    assert "vector_score" in first_rag_item
+    assert "keyword_score" in first_rag_item
+    assert "embedding_model" in first_rag_item
 
 
 def test_web_report_renders_observability_sections():
@@ -54,3 +59,9 @@ def test_web_report_renders_observability_sections():
     assert "LangGraph 执行轨迹" in response.text
     assert "RAG 检索来源" in response.text
     assert "真实节点输出与耗时" in response.text
+    assert "检索模式" in response.text
+    assert "综合相关度" in response.text
+    assert "向量相似度" in response.text
+    assert "关键词相关度" in response.text
+    assert "Embedding 模型" in response.text
+    assert "索引状态" in response.text

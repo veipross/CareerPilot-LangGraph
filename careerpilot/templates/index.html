@@ -7,7 +7,7 @@
     <title>CareerPilot-LangGraph</title>
     <link
         rel="stylesheet"
-        href="{{ url_for('static', path='/style.css') }}?v=phase3-pdf"
+        href="{{ url_for('static', path='/style.css') }}?v=phase5-vector-rag-step2"
     >
 </head>
 
@@ -283,24 +283,94 @@
             </summary>
 
             {% if rag_context %}
+            {% set rag_overview = rag_context[0] %}
+            {% set rag_mode = rag_overview.get("retrieval_mode", "keyword") %}
+
+            <div class="rag-runtime-bar">
+                <div class="rag-runtime-item">
+                    <span>检索模式</span>
+                    <strong class="mode-badge mode-{{ rag_mode }}">{{ rag_mode }}</strong>
+                </div>
+
+                <div class="rag-runtime-item">
+                    <span>Embedding 模型</span>
+                    <strong>{{ rag_overview.get("embedding_model") or "未启用" }}</strong>
+                </div>
+
+                <div class="rag-runtime-item">
+                    <span>索引状态</span>
+                    <strong>
+                        {% if rag_overview.get("index_rebuilt") %}
+                        本次已重建
+                        {% else %}
+                        已复用本地索引
+                        {% endif %}
+                    </strong>
+                </div>
+            </div>
+
+            {% if rag_overview.get("fallback_reason") %}
+            <div class="rag-fallback-alert">
+                <strong>向量检索已自动降级</strong>
+                <span>{{ rag_overview.get("fallback_reason") }}</span>
+            </div>
+            {% endif %}
+
             <div class="rag-grid">
                 {% for item in rag_context %}
+                {% set item_mode = item.get("retrieval_mode", "keyword") %}
                 <article class="rag-card">
                     <div class="rag-card-header">
                         <span class="rank-badge">Top {{ item.get("rank", loop.index) }}</span>
-                        <span class="retrieval-score">关键词相关度 {{ item.get("score", 0) }} / 100</span>
+                        <span class="retrieval-score">
+                            {% if item_mode in ["hybrid", "vector"] %}
+                            综合相关度 {{ item.get("score", 0) }} / 100
+                            {% else %}
+                            关键词相关度 {{ item.get("score", 0) }} / 100
+                            {% endif %}
+                        </span>
                     </div>
-                    <h3>{{ item.get("source_name") or item.get("source", "unknown") }}</h3>
+
+                    <div class="rag-card-title-row">
+                        <h3>{{ item.get("source_name") or item.get("source", "unknown") }}</h3>
+                        <span class="mode-badge mode-{{ item_mode }}">{{ item_mode }}</span>
+                    </div>
+
                     <p class="rag-meta">
-                        Chunk {{ item.get("chunk_index", 0) }} · {{ item.get("retrieval_reason", "关键词重叠") }}
+                        Chunk {{ item.get("chunk_index", 0) }} · {{ item.get("retrieval_reason", "知识库召回") }}
                     </p>
+
+                    <div class="rag-score-grid">
+                        <div>
+                            <span>综合相关度</span>
+                            <strong>{{ item.get("score", 0) }}</strong>
+                        </div>
+                        <div>
+                            <span>向量相似度</span>
+                            <strong>{{ item.get("vector_score", 0) }}</strong>
+                        </div>
+                        <div>
+                            <span>关键词相关度</span>
+                            <strong>{{ item.get("keyword_score", 0) }}</strong>
+                        </div>
+                    </div>
+
+                    {% if item.get("matched_terms") %}
                     <div class="term-list">
                         {% for term in item.get("matched_terms", []) %}
                         <span>{{ term }}</span>
                         {% endfor %}
                     </div>
+                    {% endif %}
+
                     <p class="rag-preview">{{ item.get("preview") or item.get("content", "") }}</p>
-                    <code class="source-path">{{ item.get("source", "") }}</code>
+
+                    <div class="rag-card-footer">
+                        <code class="source-path">{{ item.get("source", "") }}</code>
+                        {% if item.get("embedding_model") %}
+                        <span class="embedding-label">{{ item.get("embedding_model") }}</span>
+                        {% endif %}
+                    </div>
                 </article>
                 {% endfor %}
             </div>

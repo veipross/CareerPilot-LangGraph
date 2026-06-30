@@ -35,3 +35,6 @@ outputs
 # Local backup files
 *.bak
 *.before_*
+
+# Generated local vector index
+data/vector_store
