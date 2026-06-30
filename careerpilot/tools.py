@@ -325,16 +325,14 @@ def split_text_into_chunks(text: str, chunk_size: int = 420, overlap: int = 60) 
     return chunks
 
 
-def retrieve_knowledge(
+def _retrieve_keyword_knowledge(
     query_terms: List[str],
     knowledge_dir: str = "data/knowledge",
     top_k: int = 4,
+    chunk_size: int = 420,
+    overlap: int = 60,
 ) -> List[Dict[str, object]]:
-    """A lightweight keyword-overlap retriever.
-
-    This is intentionally deterministic so the project can run without an
-    embedding model or vector database. It can be replaced by FAISS/LlamaIndex later.
-    """
+    """Deterministic keyword-overlap retrieval used directly or as fallback."""
 
     root = Path(knowledge_dir)
     if not root.exists():
@@ -344,23 +342,26 @@ def retrieve_knowledge(
     lower_terms = [term.lower() for term in terms]
 
     candidates = []
-    for path in sorted(root.glob("*.txt")):
+    paths = sorted(
+        path for path in root.iterdir()
+        if path.is_file() and path.suffix.lower() in {".txt", ".md"}
+    )
+    for path in paths:
         text = path.read_text(encoding="utf-8", errors="ignore")
-        for chunk_index, chunk in enumerate(split_text_into_chunks(text), start=1):
+        for chunk_index, chunk in enumerate(
+            split_text_into_chunks(text, chunk_size=chunk_size, overlap=overlap),
+            start=1,
+        ):
             chunk_lower = chunk.lower()
             matched = [
                 terms[i]
                 for i, term in enumerate(lower_terms)
                 if term and (term in chunk_lower or terms[i] in chunk)
             ]
-
             if not matched:
                 continue
 
             matched = list(dict.fromkeys(matched))
-            # This is a transparent keyword relevance score, not a vector
-            # similarity score. Normalize by the query size so several chunks
-            # do not all saturate at 100 merely because the query is long.
             denominator = max(1, min(len(terms), 12))
             coverage = len(matched) / denominator
             score = min(99, round(25 + 74 * coverage))
@@ -370,13 +371,19 @@ def retrieve_knowledge(
                     "source": str(path),
                     "source_name": path.name,
                     "chunk_index": chunk_index,
-                    "score": score,
+                    "score": float(score),
                     "content": chunk,
                     "preview": preview,
                     "matched_terms": matched,
                     "retrieval_reason": (
                         f"命中 {len(matched)} 个查询词：{', '.join(matched)}"
                     ),
+                    "retrieval_mode": "keyword",
+                    "embedding_model": "",
+                    "vector_score": 0.0,
+                    "keyword_score": float(score),
+                    "index_rebuilt": False,
+                    "fallback_reason": "",
                 }
             )
 
@@ -393,5 +400,142 @@ def retrieve_knowledge(
     selected = candidates[:top_k]
     for rank, item in enumerate(selected, start=1):
         item["rank"] = rank
-
     return selected
+
+
+def _hybrid_results(
+    keyword_items: List[Dict[str, object]],
+    vector_items: List[Dict[str, object]],
+    top_k: int,
+    vector_weight: float,
+    embedding_model: str,
+) -> List[Dict[str, object]]:
+    """Fuse vector and keyword candidates by stable source/chunk identity."""
+
+    keyword_weight = 1.0 - vector_weight
+    merged: Dict[Tuple[str, int], Dict[str, object]] = {}
+
+    for item in [*vector_items, *keyword_items]:
+        key = (str(item.get("source", "")), int(item.get("chunk_index", 0)))
+        existing = merged.setdefault(key, dict(item))
+        if item.get("retrieval_mode") == "vector":
+            existing.update(item)
+            existing["vector_score"] = float(item.get("vector_score", item.get("score", 0)))
+        else:
+            existing["keyword_score"] = float(item.get("keyword_score", item.get("score", 0)))
+            if not existing.get("matched_terms"):
+                existing["matched_terms"] = item.get("matched_terms", [])
+
+    candidates = []
+    for item in merged.values():
+        vector_score = float(item.get("vector_score", 0.0))
+        keyword_score = float(item.get("keyword_score", 0.0))
+        combined = round(
+            vector_weight * vector_score + keyword_weight * keyword_score,
+            1,
+        )
+        item.update(
+            {
+                "score": combined,
+                "retrieval_mode": "hybrid",
+                "embedding_model": embedding_model,
+                "vector_score": vector_score,
+                "keyword_score": keyword_score,
+                "retrieval_reason": (
+                    f"混合相关度 {combined:.1f} / 100 "
+                    f"（向量 {vector_score:.1f} × {vector_weight:.2f} + "
+                    f"关键词 {keyword_score:.1f} × {keyword_weight:.2f}）"
+                ),
+            }
+        )
+        candidates.append(item)
+
+    candidates.sort(
+        key=lambda item: (
+            float(item.get("score", 0.0)),
+            float(item.get("vector_score", 0.0)),
+            float(item.get("keyword_score", 0.0)),
+        ),
+        reverse=True,
+    )
+    selected = candidates[:top_k]
+    for rank, item in enumerate(selected, start=1):
+        item["rank"] = rank
+    return selected
+
+
+def retrieve_knowledge(
+    query_terms: List[str],
+    knowledge_dir: str = "data/knowledge",
+    top_k: int = 4,
+    *,
+    query_text: str = "",
+    mode: str = "keyword",
+    embedding_model: str = "BAAI/bge-small-zh-v1.5",
+    index_dir: str = "data/vector_store",
+    chunk_size: int = 420,
+    overlap: int = 60,
+    vector_weight: float = 0.75,
+    device: str = "cpu",
+) -> List[Dict[str, object]]:
+    """Retrieve local knowledge in keyword, vector, or hybrid mode.
+
+    Vector backend failures automatically degrade to deterministic keyword
+    retrieval so the complete LangGraph workflow remains available offline.
+    """
+
+    requested_mode = (mode or "keyword").strip().lower()
+    if requested_mode not in {"keyword", "vector", "hybrid"}:
+        requested_mode = "keyword"
+
+    candidate_k = max(top_k, top_k * 3)
+    keyword_items = _retrieve_keyword_knowledge(
+        query_terms=query_terms,
+        knowledge_dir=knowledge_dir,
+        top_k=candidate_k if requested_mode == "hybrid" else top_k,
+        chunk_size=chunk_size,
+        overlap=overlap,
+    )
+    if requested_mode == "keyword":
+        return keyword_items[:top_k]
+
+    try:
+        from .rag import retrieve_vector_knowledge
+
+        semantic_query = query_text.strip() or "；".join(
+            str(term) for term in query_terms if str(term).strip()
+        )
+        vector_items = retrieve_vector_knowledge(
+            query_text=semantic_query,
+            query_terms=query_terms,
+            knowledge_dir=knowledge_dir,
+            index_dir=index_dir,
+            embedding_model=embedding_model,
+            top_k=candidate_k if requested_mode == "hybrid" else top_k,
+            chunk_size=chunk_size,
+            overlap=overlap,
+            device=device,
+        )
+    except Exception as exc:
+        fallback_reason = str(exc).strip() or exc.__class__.__name__
+        fallback = keyword_items[:top_k]
+        for item in fallback:
+            item["retrieval_mode"] = "keyword_fallback"
+            item["embedding_model"] = embedding_model
+            item["fallback_reason"] = fallback_reason
+            item["retrieval_reason"] = (
+                f"{item.get('retrieval_reason', '关键词召回')}；"
+                f"向量检索不可用，已自动降级"
+            )
+        return fallback
+
+    if requested_mode == "vector":
+        return vector_items[:top_k]
+
+    return _hybrid_results(
+        keyword_items=keyword_items,
+        vector_items=vector_items,
+        top_k=top_k,
+        vector_weight=min(1.0, max(0.0, vector_weight)),
+        embedding_model=embedding_model,
+    )

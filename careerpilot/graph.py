@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict
 
 from langgraph.graph import END, START, StateGraph
 
+from .config import get_rag_settings
 from .llm import invoke_json
 from .schemas import CareerState, ExecutionTraceItem, InterviewPlan, JDProfile, MatchReport, OpenSourceRecommendation, ProjectPlan, RAGContext, ResumeProfile, ResumeRewrite
 from .tools import (
@@ -448,7 +449,32 @@ def rag_retriever_node(state: CareerState) -> Dict[str, Any]:
         )
     )
 
-    raw_items = retrieve_knowledge(query_terms=query_terms, knowledge_dir="data/knowledge", top_k=4)
+    rag_settings = get_rag_settings()
+    query_text = "；".join(
+        part
+        for part in [
+            f"目标岗位：{jd.get('role', '')}",
+            f"优先补齐技能：{', '.join(match.get('missing_skills', []))}",
+            f"已有技能：{', '.join(match.get('matched_skills', []))}",
+            f"岗位核心要求：{', '.join(jd.get('core_requirements', []))}",
+            f"岗位加分项：{', '.join(jd.get('preferred_requirements', []))}",
+        ]
+        if part.split("：", 1)[-1].strip()
+    )
+
+    raw_items = retrieve_knowledge(
+        query_terms=query_terms,
+        query_text=query_text,
+        knowledge_dir=rag_settings.knowledge_dir,
+        top_k=rag_settings.top_k,
+        mode=rag_settings.mode,
+        embedding_model=rag_settings.embedding_model,
+        index_dir=rag_settings.index_dir,
+        chunk_size=rag_settings.chunk_size,
+        overlap=rag_settings.chunk_overlap,
+        vector_weight=rag_settings.vector_weight,
+        device=rag_settings.device,
+    )
     items = [RAGContext(**item).model_dump() for item in raw_items]
     return {"rag_context": items}
 
