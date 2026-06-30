@@ -225,3 +225,95 @@ Web 页面支持两种简历输入方式：
 curl -X POST "http://127.0.0.1:8001/resume/extract" \
   -F "resume_file=@resume.pdf"
 ```
+
+## Docker 与持续集成（Phase 4）
+
+### Docker 一键运行
+
+离线模式不需要 API Key，可以直接构建并启动：
+
+```bash
+docker build -t careerpilot-langgraph:local .
+docker run --rm -p 8001:8001 careerpilot-langgraph:local
+```
+
+浏览器访问：
+
+```text
+http://127.0.0.1:8001/
+```
+
+健康检查：
+
+```bash
+curl http://127.0.0.1:8001/health
+```
+
+在线模式建议先准备本地 `.env`：
+
+```bash
+cp .env.example .env
+```
+
+填写 `DEEPSEEK_API_KEY` 或 `DASHSCOPE_API_KEY` 后运行：
+
+```bash
+docker run --rm \
+  -p 8001:8001 \
+  --env-file .env \
+  careerpilot-langgraph:local
+```
+
+镜像使用非 root 用户运行，并通过 `/health` 执行容器健康检查。本地 `.env`、真实简历、PDF、压缩包和输出目录由 `.dockerignore` 排除，不会进入镜像构建上下文。
+
+### Docker Compose
+
+Compose 会读取项目目录中的 `.env`，并把声明的模型配置传入容器：
+
+```bash
+docker compose up --build -d
+docker compose ps
+docker compose logs -f careerpilot
+```
+
+停止并清理：
+
+```bash
+docker compose down
+```
+
+修改外部访问端口：
+
+```bash
+CAREERPILOT_PORT=8080 docker compose up --build -d
+```
+
+此时访问 `http://127.0.0.1:8080/`。
+
+### GitHub Actions CI
+
+`.github/workflows/ci.yml` 会在 push、pull request 和手动触发时执行：
+
+1. Python 3.9 与 3.11 双版本测试；
+2. 源码编译检查；
+3. 完整 `pytest`；
+4. Docker 镜像构建；
+5. 启动容器并访问 `/health` 进行 smoke test。
+
+本地提交前可以运行同等的核心检查：
+
+```bash
+python -m compileall -q careerpilot tests
+pytest -q
+docker build -t careerpilot-langgraph:local .
+```
+
+### Phase 4 文件
+
+```text
+Dockerfile                    # 非 root 生产镜像与健康检查
+.dockerignore                 # 排除密钥、缓存和私人文件
+docker-compose.yml            # 一键启动及环境变量注入
+.github/workflows/ci.yml       # Python 测试 + Docker smoke test
+tests/test_deployment.py       # 部署配置回归测试
+```

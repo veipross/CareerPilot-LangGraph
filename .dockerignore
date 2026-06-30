@@ -1,0 +1,37 @@
+# Version control and CI metadata
+.git
+.github
+
+# Local environments and caches
+.venv
+venv
+env
+__pycache__
+**/__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+*.egg-info
+
+# Secrets: never copy local credentials into the image
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Private data and generated artifacts
+data/resume
+outputs
+*.pdf
+*.zip
+
+# IDE / OS files
+.idea
+.vscode
+.DS_Store
+
+# Local backup files
+*.bak
+*.before_*

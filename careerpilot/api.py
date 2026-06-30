@@ -34,7 +34,7 @@ app = FastAPI(
         "A LangGraph-based career preparation agent service "
         "with DeepSeek/Qwen online providers and offline fallback."
     ),
-    version="0.4.0",
+    version="0.5.0",
 )
 
 # check_dir=False 可以避免在静态资源目录尚未创建时，
