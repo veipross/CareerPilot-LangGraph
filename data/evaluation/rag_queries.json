@@ -1,0 +1,58 @@
+[
+  {
+    "id": "semantic_state_recovery",
+    "query_type": "semantic_paraphrase",
+    "query": "怎样让一个多步骤智能系统在各阶段共享上下文，并在中断后继续执行？",
+    "query_terms": ["上下文共享", "中断恢复", "多步骤工作流"],
+    "expected_sources": ["langgraph_notes.txt"]
+  },
+  {
+    "id": "semantic_agent_planning",
+    "query_type": "semantic_paraphrase",
+    "query": "模型如何先拆解用户目标，再借助外部能力执行任务并检查结果？",
+    "query_terms": ["目标拆解", "外部能力", "结果检查"],
+    "expected_sources": ["agent_notes.txt"]
+  },
+  {
+    "id": "semantic_private_knowledge",
+    "query_type": "semantic_paraphrase",
+    "query": "如何把私有材料编码成可搜索表示，并按问题召回最相关的内容片段？",
+    "query_terms": ["私有材料", "编码表示", "片段召回"],
+    "expected_sources": ["rag_notes.txt"]
+  },
+  {
+    "id": "semantic_open_source_entry",
+    "query_type": "semantic_paraphrase",
+    "query": "第一次参与开源项目时，怎样从说明文档、测试和小型示例开始贡献？",
+    "query_terms": ["开源入门", "说明文档", "小型贡献"],
+    "expected_sources": ["github_contribution_notes.txt"]
+  },
+  {
+    "id": "exact_langgraph",
+    "query_type": "exact_technical_term",
+    "query": "LangGraph 的 State、Node、Edge 和 conditional edge 分别有什么作用？",
+    "query_terms": ["LangGraph", "State", "Node", "Edge", "conditional edge"],
+    "expected_sources": ["langgraph_notes.txt"]
+  },
+  {
+    "id": "exact_rag_pipeline",
+    "query_type": "exact_technical_term",
+    "query": "RAG 的文档切分、Embedding、向量检索和生成流程是什么？",
+    "query_terms": ["RAG", "文档切分", "Embedding", "向量检索"],
+    "expected_sources": ["rag_notes.txt"]
+  },
+  {
+    "id": "exact_agent_modules",
+    "query_type": "exact_technical_term",
+    "query": "Agent 系统中的 Planner、Tool Executor、Memory 和 Evaluator 如何配合？",
+    "query_terms": ["Agent", "Planner", "Tool Executor", "Memory", "Evaluator"],
+    "expected_sources": ["agent_notes.txt"]
+  },
+  {
+    "id": "exact_github_qwen",
+    "query_type": "exact_technical_term",
+    "query": "如何通过 Qwen、DashScope 示例或 good first issue 开始 GitHub 开源贡献？",
+    "query_terms": ["Qwen", "DashScope", "good first issue", "GitHub"],
+    "expected_sources": ["github_contribution_notes.txt"]
+  }
+]
